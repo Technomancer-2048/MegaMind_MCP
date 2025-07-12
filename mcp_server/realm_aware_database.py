@@ -34,17 +34,31 @@ logger = logging.getLogger(__name__)
 class RealmAwareMegaMindDatabase:
     """Realm-aware database operations with dual-realm access patterns"""
     
-    def __init__(self, config: Dict[str, Any]):
+    def __init__(self, config: Dict[str, Any], realm_config: Optional[Any] = None, shared_embedding_service: Optional[Any] = None):
         self.config = config
         self.connection_pool = None
-        self.realm_config = get_realm_config()
+        
+        # Use injected realm configuration or get from environment
+        if realm_config is not None:
+            self.realm_config = realm_config
+            logger.info(f"Using injected realm config for realm: {getattr(realm_config, 'project_realm', 'unknown')}")
+        else:
+            self.realm_config = get_realm_config()
+            logger.info("Using environment-based realm config")
+        
         self.realm_access = get_realm_access_controller()
         self.inheritance_resolver = None  # Initialized after connection setup
         self.promotion_manager = None  # Initialized after connection setup
         self.security_validator = None  # Initialized after connection setup
         
-        # Initialize semantic search components
-        self.embedding_service = get_embedding_service()
+        # Use shared embedding service or create new one
+        if shared_embedding_service is not None:
+            self.embedding_service = shared_embedding_service
+            logger.info("Using shared embedding service")
+        else:
+            self.embedding_service = get_embedding_service()
+            logger.info("Created new embedding service instance")
+        
         self.vector_search_engine = None  # Initialized after realm config is ready
         
         self._setup_connection_pool()

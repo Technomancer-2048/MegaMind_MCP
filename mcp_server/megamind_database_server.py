@@ -678,6 +678,54 @@ class MegaMindDatabase:
         """
         cursor.execute(update_session, (session_id, session_id))
 
+def setup_environment_paths():
+    """Setup environment paths from MEGAMIND_ROOT with intelligent defaults"""
+    # Get root path from environment or use intelligent default
+    root = os.getenv('MEGAMIND_ROOT')
+    
+    if not root:
+        # Try to determine root from current script location
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        # If we're in mcp_server directory, go up one level
+        if current_dir.endswith('mcp_server'):
+            root = os.path.dirname(current_dir)
+        else:
+            root = current_dir
+        logger.info(f"MEGAMIND_ROOT not set, using inferred root: {root}")
+    else:
+        logger.info(f"Using MEGAMIND_ROOT: {root}")
+    
+    # Setup derived paths
+    models_path = os.path.join(root, 'models')
+    server_path = os.path.join(root, 'mcp_server')
+    
+    # Set model cache environment variables
+    os.environ['HF_HOME'] = models_path
+    os.environ['SENTENCE_TRANSFORMERS_HOME'] = models_path
+    os.environ['TRANSFORMERS_CACHE'] = models_path
+    
+    # Set Python path for imports
+    current_pythonpath = os.environ.get('PYTHONPATH', '')
+    if server_path not in current_pythonpath:
+        if current_pythonpath:
+            os.environ['PYTHONPATH'] = f"{server_path}:{current_pythonpath}"
+        else:
+            os.environ['PYTHONPATH'] = server_path
+    
+    # Create models directory if it doesn't exist
+    os.makedirs(models_path, exist_ok=True)
+    
+    logger.info(f"Environment paths configured:")
+    logger.info(f"  Models cache: {models_path}")
+    logger.info(f"  Python path: {server_path}")
+    logger.info(f"  HF_HOME: {os.environ['HF_HOME']}")
+    
+    return {
+        'root': root,
+        'models_path': models_path,
+        'server_path': server_path
+    }
+
 def load_config():
     """Load configuration from environment variables"""
     return {
@@ -695,6 +743,15 @@ class MCPServer:
     def __init__(self, db_manager: MegaMindDatabase):
         self.db_manager = db_manager
         self.request_id = 0
+        self.default_realm = os.getenv('MEGAMIND_PROJECT_REALM', 'PROJECT')
+    
+    def extract_realm_from_arguments(self, tool_args: Dict[str, Any]) -> Optional[str]:
+        """Extract realm_id from tool arguments for future realm-aware operations"""
+        realm_id = tool_args.get('realm_id')
+        if realm_id:
+            logger.debug(f"Extracted realm_id: {realm_id}")
+            return realm_id
+        return None
     
     async def handle_request(self, request: Dict[str, Any]) -> Dict[str, Any]:
         """Handle incoming MCP requests"""
@@ -733,7 +790,8 @@ class MCPServer:
                                     "properties": {
                                         "query": {"type": "string", "description": "Search query"},
                                         "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "search_type": {"type": "string", "default": "hybrid", "description": "Search type: semantic, keyword, or hybrid"}
+                                        "search_type": {"type": "string", "default": "hybrid", "description": "Search type: semantic, keyword, or hybrid"},
+                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
                                     },
                                     "required": ["query"]
                                 }
@@ -745,7 +803,8 @@ class MCPServer:
                                     "type": "object",
                                     "properties": {
                                         "chunk_id": {"type": "string", "description": "Chunk identifier"},
-                                        "include_relationships": {"type": "boolean", "default": True, "description": "Include relationships"}
+                                        "include_relationships": {"type": "boolean", "default": True, "description": "Include relationships"},
+                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
                                     },
                                     "required": ["chunk_id"]
                                 }
@@ -757,7 +816,8 @@ class MCPServer:
                                     "type": "object",
                                     "properties": {
                                         "chunk_id": {"type": "string", "description": "Source chunk identifier"},
-                                        "max_depth": {"type": "integer", "default": 2, "description": "Maximum relationship depth"}
+                                        "max_depth": {"type": "integer", "default": 2, "description": "Maximum relationship depth"},
+                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
                                     },
                                     "required": ["chunk_id"]
                                 }
@@ -870,7 +930,8 @@ class MCPServer:
                                     "properties": {
                                         "query": {"type": "string", "description": "Search query"},
                                         "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"}
+                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
+                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
                                     },
                                     "required": ["query"]
                                 }
@@ -883,7 +944,8 @@ class MCPServer:
                                     "properties": {
                                         "reference_chunk_id": {"type": "string", "description": "Reference chunk identifier"},
                                         "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"}
+                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
+                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
                                     },
                                     "required": ["reference_chunk_id"]
                                 }
@@ -909,6 +971,9 @@ class MCPServer:
                 tool_args = params.get('arguments', {})
                 
                 if tool_name == 'mcp__context_db__search_chunks':
+                    # Extract realm_id parameter (optional, for future use)
+                    realm_id = self.extract_realm_from_arguments(tool_args)
+                    # For now, use existing dual-realm search (Phase 1 compatibility)
                     results = self.db_manager.search_chunks_dual_realm(
                         query=tool_args.get('query', ''),
                         limit=tool_args.get('limit', 10),
@@ -928,6 +993,9 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__get_chunk':
+                    # Extract realm_id parameter (optional, for future use)
+                    realm_id = self.extract_realm_from_arguments(tool_args)
+                    # For now, use existing dual-realm search (Phase 1 compatibility)
                     result = self.db_manager.get_chunk_dual_realm(
                         chunk_id=tool_args.get('chunk_id', ''),
                         include_relationships=tool_args.get('include_relationships', True)
@@ -946,6 +1014,9 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__get_related_chunks':
+                    # Extract realm_id parameter (optional, for future use)
+                    realm_id = self.extract_realm_from_arguments(tool_args)
+                    # For now, use existing method (Phase 1 compatibility)
                     results = self.db_manager.get_related_chunks(
                         chunk_id=tool_args.get('chunk_id', ''),
                         max_depth=tool_args.get('max_depth', 2)
@@ -1112,6 +1183,9 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__search_chunks_semantic':
+                    # Extract realm_id parameter (optional, for future use)
+                    realm_id = self.extract_realm_from_arguments(tool_args)
+                    # For now, use existing semantic search (Phase 1 compatibility)
                     results = self.db_manager.search_chunks_semantic(
                         query=tool_args.get('query', ''),
                         limit=tool_args.get('limit', 10),
@@ -1131,6 +1205,9 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__search_chunks_by_similarity':
+                    # Extract realm_id parameter (optional, for future use)
+                    realm_id = self.extract_realm_from_arguments(tool_args)
+                    # For now, use existing similarity search (Phase 1 compatibility)
                     results = self.db_manager.search_chunks_by_similarity(
                         reference_chunk_id=tool_args.get('reference_chunk_id', ''),
                         limit=tool_args.get('limit', 10),
@@ -1233,9 +1310,53 @@ class MCPServer:
         
         logger.info("MCP Server shutting down")
 
-async def main():
-    """Main entry point for the MCP server"""
+async def wait_for_embedding_service_ready(db_manager, timeout: int = 90) -> bool:
+    """Wait for embedding service to be fully ready with comprehensive testing"""
+    import time
+    
+    start_time = time.time()
+    logger.info("Waiting for embedding service to initialize...")
+    
+    # Phase 1: Wait for basic availability
+    while not db_manager.embedding_service.is_available():
+        elapsed = time.time() - start_time
+        if elapsed > timeout:
+            logger.error(f"Embedding service failed to initialize within {timeout} seconds")
+            return False
+        
+        if elapsed % 10 == 0:  # Log every 10 seconds
+            logger.info(f"Still waiting for embedding service... ({elapsed:.0f}s elapsed)")
+        
+        await asyncio.sleep(1)
+    
+    # Phase 2: Comprehensive readiness test
+    logger.info("Embedding service available, running comprehensive readiness test...")
     try:
+        readiness_result = db_manager.embedding_service.test_readiness()
+        
+        if not readiness_result['ready']:
+            logger.error(f"Embedding service readiness test failed: {readiness_result['error']}")
+            logger.error(f"Readiness details: {readiness_result}")
+            return False
+        
+        elapsed = time.time() - start_time
+        logger.info(f"Embedding service ready and functional (elapsed: {elapsed:.2f}s)")
+        logger.info(f"Readiness test passed: model_loaded={readiness_result['model_loaded']}, "
+                   f"test_successful={readiness_result['test_embedding_successful']}, "
+                   f"dimension_correct={readiness_result['embedding_dimension_correct']}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Embedding service readiness test failed with exception: {e}")
+        return False
+
+async def main():
+    """Main entry point for the MCP server with enhanced readiness checking"""
+    try:
+        # Setup environment paths first
+        logger.info("Setting up environment paths...")
+        path_config = setup_environment_paths()
+        
         # Load configuration
         db_config = load_config()
         
@@ -1243,12 +1364,30 @@ async def main():
             logger.error("Database password not configured. Set MEGAMIND_DB_PASSWORD environment variable.")
             return 1
         
+        logger.info("Initializing MegaMind MCP Server...")
+        
         # Initialize realm-aware database
+        logger.info("Initializing realm-aware database...")
         db_manager = RealmAwareMegaMindDatabase(db_config)
         
-        # Test database connection
+        # Wait for embedding service to be ready
+        embedding_ready = await wait_for_embedding_service_ready(db_manager, timeout=90)
+        if not embedding_ready:
+            logger.error("Failed to initialize embedding service - server cannot start")
+            return 1
+        
+        # Test database connection with semantic capabilities
+        logger.info("Testing database connection and semantic search capabilities...")
         test_results = db_manager.search_chunks_dual_realm("test", limit=1)
         logger.info(f"Database connection successful. Found {len(test_results)} test results.")
+        
+        # Get embedding service statistics for diagnostic info
+        embedding_stats = db_manager.embedding_service.get_embedding_stats()
+        logger.info(f"Embedding service stats: model={embedding_stats['model_name']}, "
+                   f"device={embedding_stats['device']}, available={embedding_stats['available']}")
+        
+        # Final readiness confirmation
+        logger.info("All systems ready. Starting MCP server...")
         
         # Start MCP server
         mcp_server = MCPServer(db_manager)
@@ -1256,6 +1395,8 @@ async def main():
             
     except Exception as e:
         logger.error(f"Server failed to start: {e}")
+        import traceback
+        traceback.print_exc()
         return 1
     
     return 0
