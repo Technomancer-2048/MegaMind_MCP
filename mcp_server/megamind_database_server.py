@@ -125,7 +125,11 @@ class MegaMindDatabase:
                 WHERE chunk_id = %s
                 """
                 cursor.execute(rel_query, (chunk_id,))
-                chunk['relationships'] = cursor.fetchall()
+                relationships = cursor.fetchall()
+                # Convert Decimal to float for JSON serialization
+                for rel in relationships:
+                    rel['strength'] = float(rel['strength']) if rel['strength'] else 0.0
+                chunk['relationships'] = relationships
             
             return chunk
             
@@ -166,6 +170,11 @@ class MegaMindDatabase:
             
             cursor.execute(related_query, (chunk_id, max_depth))
             results = cursor.fetchall()
+            
+            # Convert Decimal to float for JSON serialization
+            for result in results:
+                if 'strength' in result and result['strength'] is not None:
+                    result['strength'] = float(result['strength'])
             
             return results
             
@@ -445,6 +454,9 @@ class MegaMindDatabase:
             for change in changes:
                 change['timestamp'] = change['timestamp'].isoformat()
                 change['change_data'] = json.loads(change['change_data'])
+                
+                # Convert Decimal to float for JSON serialization
+                change['impact_score'] = float(change['impact_score']) if change['impact_score'] else 0.0
                 
                 # Assign priority based on impact score and access count
                 impact = change['impact_score']
