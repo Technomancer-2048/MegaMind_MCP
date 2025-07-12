@@ -120,9 +120,9 @@ class MegaMindDatabase:
             # Get relationships if requested
             if include_relationships:
                 rel_query = """
-                SELECT target_chunk_id, relationship_type, strength
+                SELECT related_chunk_id, relationship_type, strength
                 FROM megamind_chunk_relationships
-                WHERE source_chunk_id = %s
+                WHERE chunk_id = %s
                 """
                 cursor.execute(rel_query, (chunk_id,))
                 chunk['relationships'] = cursor.fetchall()
@@ -146,21 +146,21 @@ class MegaMindDatabase:
             # Recursive relationship query with depth limit
             related_query = """
             WITH RECURSIVE chunk_relations AS (
-                SELECT target_chunk_id, relationship_type, strength, 1 as depth
+                SELECT related_chunk_id, relationship_type, strength, 1 as depth
                 FROM megamind_chunk_relationships
-                WHERE source_chunk_id = %s
+                WHERE chunk_id = %s
                 
                 UNION ALL
                 
-                SELECT cr.target_chunk_id, cr.relationship_type, cr.strength, depth + 1
+                SELECT cr.related_chunk_id, cr.relationship_type, cr.strength, depth + 1
                 FROM megamind_chunk_relationships cr
-                JOIN chunk_relations r ON cr.source_chunk_id = r.target_chunk_id
+                JOIN chunk_relations r ON cr.chunk_id = r.related_chunk_id
                 WHERE depth < %s
             )
             SELECT DISTINCT c.chunk_id, c.content, c.source_document, c.section_path,
                    c.chunk_type, c.line_count, c.token_count, r.relationship_type, r.strength
             FROM chunk_relations r
-            JOIN megamind_chunks c ON r.target_chunk_id = c.chunk_id
+            JOIN megamind_chunks c ON r.related_chunk_id = c.chunk_id
             ORDER BY r.strength DESC
             """
             
@@ -357,7 +357,7 @@ class MegaMindDatabase:
                 "content": content,
                 "source_document": source_document,
                 "section_path": section_path,
-                "chunk_type": "ai_generated",
+                "chunk_type": "section",  # Valid ENUM value: 'rule', 'function', 'section', 'example'
                 "line_count": len(content.split('\n')),
                 "token_count": len(content.split()) * 1.3  # Rough estimate
             }
@@ -535,7 +535,7 @@ class MegaMindDatabase:
                     # Create relationship
                     rel_insert = """
                     INSERT IGNORE INTO megamind_chunk_relationships 
-                    (source_chunk_id, target_chunk_id, relationship_type, strength)
+                    (chunk_id, related_chunk_id, relationship_type, strength)
                     VALUES (%s, %s, %s, %s)
                     """
                     cursor.execute(rel_insert, (
