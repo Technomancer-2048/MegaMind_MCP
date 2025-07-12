@@ -27,7 +27,7 @@ class TestDatabaseSchema(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database configuration"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -114,7 +114,7 @@ class TestMarkdownIngester(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database and sample files"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -229,7 +229,7 @@ class TestDatabaseManager(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database configuration"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -289,7 +289,7 @@ class TestSystemIntegration(unittest.TestCase):
     def setUpClass(cls):
         """Setup integration test environment"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),

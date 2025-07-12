@@ -263,7 +263,7 @@ def main():
     parser = argparse.ArgumentParser(description='Ingest markdown files into MegaMind context database')
     parser.add_argument('directory', help='Directory containing markdown files')
     parser.add_argument('--pattern', default='*.md', help='File pattern to match (default: *.md)')
-    parser.add_argument('--host', default='localhost', help='Database host')
+    parser.add_argument('--host', default='10.255.250.22', help='Database host')
     parser.add_argument('--port', default='3309', help='Database port')
     parser.add_argument('--database', default='megamind_database', help='Database name')
     parser.add_argument('--user', default='megamind_user', help='Database user')

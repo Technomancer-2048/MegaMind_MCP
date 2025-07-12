@@ -38,8 +38,8 @@ docker exec megamind-mysql mysql -u megamind_user -p${MYSQL_PASSWORD:-megamind_s
 
 echo "✅ MegaMind Database System is running!"
 echo ""
-echo "MySQL: localhost:3309"
-echo "Redis: localhost:6380"
+echo "MySQL: 10.255.250.22:3309"
+echo "Redis: 10.255.250.22:6379"
 echo ""
 echo "To start the MCP server: ./scripts/start_mcp_server.sh"
 echo "To stop all services: docker-compose down"

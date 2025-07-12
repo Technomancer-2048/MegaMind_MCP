@@ -33,7 +33,7 @@ done
 
 echo "✅ MegaMind MCP Server is running!"
 echo ""
-echo "MCP Server: localhost:8002"
+echo "MCP Server: 10.255.250.22:8002"
 echo ""
 echo "Check status: docker-compose ps"
 echo "View logs: docker logs megamind-mcp-server"

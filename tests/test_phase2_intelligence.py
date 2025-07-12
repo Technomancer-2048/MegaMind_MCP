@@ -29,7 +29,7 @@ class TestSemanticAnalyzer(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database configuration"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -125,7 +125,7 @@ class TestEnhancedMCPFunctions(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database configuration"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -192,7 +192,7 @@ class TestContextAnalytics(unittest.TestCase):
     def setUpClass(cls):
         """Setup test database configuration"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),
@@ -272,7 +272,7 @@ class TestPhase2Integration(unittest.TestCase):
     def setUpClass(cls):
         """Setup integration test environment"""
         cls.db_config = {
-            'host': os.getenv('TEST_DB_HOST', 'localhost'),
+            'host': os.getenv('TEST_DB_HOST', '10.255.250.22'),
             'port': os.getenv('TEST_DB_PORT', '3309'),
             'database': os.getenv('TEST_DB_NAME', 'megamind_database_test'),
             'user': os.getenv('TEST_DB_USER', 'megamind_user'),

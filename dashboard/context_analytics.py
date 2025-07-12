@@ -301,7 +301,7 @@ def init_analytics():
     global analytics
     
     db_config = {
-        'host': os.getenv('MEGAMIND_DB_HOST', 'localhost'),
+        'host': os.getenv('MEGAMIND_DB_HOST', '10.255.250.22'),
         'port': os.getenv('MEGAMIND_DB_PORT', '3309'),
         'database': os.getenv('MEGAMIND_DB_NAME', 'megamind_database'),
         'user': os.getenv('MEGAMIND_DB_USER', 'megamind_user'),

@@ -14,7 +14,7 @@ if ! docker ps | grep -q megamind-mysql; then
 fi
 
 # Set test environment variables
-export TEST_DB_HOST=localhost
+export TEST_DB_HOST=10.255.250.22
 export TEST_DB_PORT=3309
 export TEST_DB_NAME=megamind_database
 export TEST_DB_USER=megamind_user

@@ -14,7 +14,7 @@ if ! docker ps | grep -q megamind-mysql; then
 fi
 
 # Set environment variables
-export MEGAMIND_DB_HOST=localhost
+export MEGAMIND_DB_HOST=10.255.250.22
 export MEGAMIND_DB_PORT=3309
 export MEGAMIND_DB_NAME=megamind_database
 export MEGAMIND_DB_USER=megamind_user

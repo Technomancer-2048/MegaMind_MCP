@@ -29,7 +29,7 @@ class TestBidirectionalFlow(unittest.TestCase):
     def setUp(self):
         """Set up test environment with mocked database"""
         self.mock_config = {
-            'host': 'localhost',
+            'host': '10.255.250.22',
             'port': '3309',
             'database': 'megamind_database_test',
             'user': 'test_user',
@@ -342,7 +342,7 @@ class TestReviewInterface(unittest.TestCase):
     def setUp(self):
         """Set up test environment for review interface"""
         self.mock_config = {
-            'host': 'localhost',
+            'host': '10.255.250.22',
             'port': '3309',
             'database': 'megamind_database_test',
             'user': 'test_user',
