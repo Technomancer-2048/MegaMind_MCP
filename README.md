@@ -59,12 +59,23 @@ The MegaMind Context Database System solves the critical problem of AI context w
    python markdown_ingester.py /path/to/docs --password your_db_password
    ```
 
-4. **Start the MCP server**
+4. **Run semantic analysis (Phase 2)**
+   ```bash
+   ./scripts/run_semantic_analysis.sh
+   ```
+
+5. **Start the MCP server**
    ```bash
    ./scripts/start_mcp_server.sh
    ```
 
-5. **Validate installation**
+6. **Start analytics dashboard (optional)**
+   ```bash
+   ./scripts/start_dashboard.sh
+   # Available at http://localhost:5000
+   ```
+
+7. **Validate installation**
    ```bash
    ./scripts/run_tests.sh
    ```
@@ -128,6 +139,11 @@ services:
 - `mcp__megamind_db__get_session_primer(last_session_data)` - Generate context for session continuity
 - `mcp__megamind_db__track_access(chunk_id, query_context)` - Update access statistics
 
+### Intelligence Layer Functions (Phase 2)
+- `mcp__megamind_db__search_by_embedding(query, limit, similarity_threshold)` - Semantic embedding search
+- `mcp__megamind_db__search_by_tags(tag_type, tag_value, limit)` - Tag-based chunk retrieval
+- `mcp__megamind_db__get_session_primer(last_session_data, project_context)` - Enhanced session context
+
 ## Development Phases
 
 ### Phase 1: Core Infrastructure (Weeks 1-2) ✅ COMPLETED
@@ -137,10 +153,13 @@ services:
 - ✅ Docker configuration and deployment scripts
 - ✅ Comprehensive validation test suite
 
-### Phase 2: Intelligence Layer (Weeks 3-4)
-- 🔄 Semantic analysis engine with embedding generation
-- 🔄 Context analytics dashboard for usage monitoring
-- 🔄 Enhanced MCP functions with relationship traversal
+### Phase 2: Intelligence Layer (Weeks 3-4) ✅ COMPLETED
+- ✅ Semantic analysis engine with embedding generation
+- ✅ Context analytics dashboard for usage monitoring  
+- ✅ Enhanced MCP functions with relationship traversal
+- ✅ Embedding storage and similarity search
+- ✅ Automated relationship discovery and tagging
+- ✅ Session primer with CLAUDE.md integration
 
 ### Phase 3: Bidirectional Flow (Weeks 5-6)
 - ⏳ Knowledge update functions with session buffering

@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MegaMind Context Analytics Dashboard</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fa;
+            color: #333;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            transition: transform 0.2s ease;
+        }
+        
+        .card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 15px rgba(0, 0, 0, 0.15);
+        }
+        
+        .card h3 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+            border-bottom: 2px solid #f0f0f0;
+            padding-bottom: 10px;
+        }
+        
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .metric-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #667eea;
+        }
+        
+        .metric-value {
+            font-size: 2.5em;
+            font-weight: bold;
+            color: #667eea;
+            margin: 10px 0;
+        }
+        
+        .metric-label {
+            color: #666;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .chart-container {
+            height: 400px;
+            margin: 10px 0;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+            font-style: italic;
+        }
+        
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #c62828;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-online {
+            background-color: #4caf50;
+        }
+        
+        .status-offline {
+            background-color: #f44336;
+        }
+        
+        .refresh-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin: 10px 0;
+        }
+        
+        .refresh-btn:hover {
+            background: #5a6fd8;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🧠 MegaMind Context Analytics</h1>
+        <p>Real-time monitoring of semantic documentation retrieval system</p>
+        <p>
+            <span id="status-indicator" class="status-indicator status-offline"></span>
+            <span id="status-text">Connecting...</span>
+            <button class="refresh-btn" onclick="refreshAll()">Refresh All</button>
+        </p>
+    </div>
+
+    <!-- Key Metrics -->
+    <div class="metrics-grid" id="metrics-grid">
+        <div class="metric-card">
+            <div class="metric-label">Total Chunks</div>
+            <div class="metric-value" id="total-chunks">-</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Context Efficiency</div>
+            <div class="metric-value" id="efficiency-ratio">-</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Avg Tokens/Chunk</div>
+            <div class="metric-value" id="avg-tokens">-</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-label">Active Relationships</div>
+            <div class="metric-value" id="total-relationships">-</div>
+        </div>
+    </div>
+
+    <!-- Dashboard Grid -->
+    <div class="dashboard-grid">
+        <!-- Usage Heatmap -->
+        <div class="card">
+            <h3>📊 Usage Heatmap</h3>
+            <div id="usage-heatmap" class="chart-container">
+                <div class="loading">Loading usage data...</div>
+            </div>
+        </div>
+
+        <!-- Relationship Network -->
+        <div class="card">
+            <h3>🕸️ Relationship Network</h3>
+            <div id="relationship-network" class="chart-container">
+                <div class="loading">Loading relationship data...</div>
+            </div>
+        </div>
+
+        <!-- Search Patterns -->
+        <div class="card">
+            <h3>🔍 Search Patterns</h3>
+            <div id="search-patterns" class="chart-container">
+                <div class="loading">Loading search data...</div>
+            </div>
+        </div>
+
+        <!-- Tag Distribution -->
+        <div class="card">
+            <h3>🏷️ Tag Distribution</h3>
+            <div id="tag-distribution" class="chart-container">
+                <div class="loading">Loading tag data...</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global state
+        let dashboardData = {};
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            checkHealth();
+            loadAllData();
+            
+            // Refresh data every 30 seconds
+            setInterval(loadAllData, 30000);
+        });
+        
+        // Health check
+        async function checkHealth() {
+            try {
+                const response = await fetch('/api/health');
+                const data = await response.json();
+                
+                const indicator = document.getElementById('status-indicator');
+                const statusText = document.getElementById('status-text');
+                
+                if (data.status === 'ok') {
+                    indicator.className = 'status-indicator status-online';
+                    statusText.textContent = 'Online';
+                } else {
+                    indicator.className = 'status-indicator status-offline';
+                    statusText.textContent = 'Error: ' + data.message;
+                }
+            } catch (error) {
+                document.getElementById('status-indicator').className = 'status-indicator status-offline';
+                document.getElementById('status-text').textContent = 'Offline';
+            }
+        }
+        
+        // Load all dashboard data
+        async function loadAllData() {
+            await Promise.all([
+                loadEfficiencyMetrics(),
+                loadUsageHeatmap(),
+                loadRelationshipNetwork(),
+                loadSearchPatterns(),
+                loadTagDistribution()
+            ]);
+        }
+        
+        // Refresh all data
+        function refreshAll() {
+            checkHealth();
+            loadAllData();
+        }
+        
+        // Load efficiency metrics
+        async function loadEfficiencyMetrics() {
+            try {
+                const response = await fetch('/api/efficiency-metrics');
+                const data = await response.json();
+                
+                document.getElementById('total-chunks').textContent = data.total_chunks || '-';
+                document.getElementById('efficiency-ratio').textContent = (data.efficiency_ratio || 0) + '%';
+                document.getElementById('avg-tokens').textContent = Math.round(data.avg_tokens_per_chunk || 0);
+                
+                dashboardData.efficiency = data;
+            } catch (error) {
+                console.error('Failed to load efficiency metrics:', error);
+            }
+        }
+        
+        // Load usage heatmap
+        async function loadUsageHeatmap() {
+            try {
+                const response = await fetch('/api/usage-heatmap');
+                const data = await response.json();
+                
+                const allChunks = [...(data.hot_chunks || []), ...(data.warm_chunks || []), ...(data.cold_chunks || [])];
+                
+                const trace = {
+                    x: allChunks.map(c => c.source_document),
+                    y: allChunks.map(c => c.access_count),
+                    mode: 'markers',
+                    marker: {
+                        size: allChunks.map(c => Math.max(5, c.access_count * 2)),
+                        color: allChunks.map(c => c.access_count),
+                        colorscale: 'Viridis',
+                        colorbar: {title: 'Access Count'}
+                    },
+                    text: allChunks.map(c => `${c.chunk_id}<br>Type: ${c.chunk_type}<br>Accesses: ${c.access_count}`),
+                    type: 'scatter'
+                };
+                
+                const layout = {
+                    title: 'Chunk Usage Distribution',
+                    xaxis: {title: 'Source Document'},
+                    yaxis: {title: 'Access Count'},
+                    height: 350
+                };
+                
+                Plotly.newPlot('usage-heatmap', [trace], layout, {responsive: true});
+                
+            } catch (error) {
+                document.getElementById('usage-heatmap').innerHTML = '<div class="error">Failed to load usage data</div>';
+            }
+        }
+        
+        // Load relationship network
+        async function loadRelationshipNetwork() {
+            try {
+                const response = await fetch('/api/relationship-network');
+                const data = await response.json();
+                
+                document.getElementById('total-relationships').textContent = data.edges?.length || '-';
+                
+                // Create a simple network visualization using scatter plot
+                const nodes = data.nodes || [];
+                const edges = data.edges || [];
+                
+                if (nodes.length === 0) {
+                    document.getElementById('relationship-network').innerHTML = '<div class="loading">No relationship data available</div>';
+                    return;
+                }
+                
+                // Simple layout: arrange nodes in a circle
+                const centerX = 0, centerY = 0, radius = 1;
+                nodes.forEach((node, i) => {
+                    const angle = (i / nodes.length) * 2 * Math.PI;
+                    node.x = centerX + radius * Math.cos(angle);
+                    node.y = centerY + radius * Math.sin(angle);
+                });
+                
+                const nodeTrace = {
+                    x: nodes.map(n => n.x),
+                    y: nodes.map(n => n.y),
+                    mode: 'markers+text',
+                    marker: {
+                        size: nodes.map(n => n.size || 10),
+                        color: nodes.map(n => n.access_count),
+                        colorscale: 'Blues'
+                    },
+                    text: nodes.map(n => n.id.substring(0, 10) + '...'),
+                    textposition: 'middle center',
+                    type: 'scatter'
+                };
+                
+                const layout = {
+                    title: `Relationship Network (${edges.length} connections)`,
+                    showlegend: false,
+                    height: 350,
+                    xaxis: {showgrid: false, showticklabels: false},
+                    yaxis: {showgrid: false, showticklabels: false}
+                };
+                
+                Plotly.newPlot('relationship-network', [nodeTrace], layout, {responsive: true});
+                
+            } catch (error) {
+                document.getElementById('relationship-network').innerHTML = '<div class="error">Failed to load relationship data</div>';
+            }
+        }
+        
+        // Load search patterns
+        async function loadSearchPatterns() {
+            try {
+                const response = await fetch('/api/search-patterns');
+                const data = await response.json();
+                
+                const queries = data.popular_queries || [];
+                
+                const trace = {
+                    x: queries.map(q => q.query),
+                    y: queries.map(q => q.count),
+                    type: 'bar',
+                    marker: {color: '#667eea'}
+                };
+                
+                const layout = {
+                    title: 'Popular Search Queries',
+                    xaxis: {title: 'Query'},
+                    yaxis: {title: 'Search Count'},
+                    height: 350
+                };
+                
+                Plotly.newPlot('search-patterns', [trace], layout, {responsive: true});
+                
+            } catch (error) {
+                document.getElementById('search-patterns').innerHTML = '<div class="error">Failed to load search data</div>';
+            }
+        }
+        
+        // Load tag distribution
+        async function loadTagDistribution() {
+            try {
+                const response = await fetch('/api/tag-distribution');
+                const data = await response.json();
+                
+                const tagTypes = Object.keys(data);
+                if (tagTypes.length === 0) {
+                    document.getElementById('tag-distribution').innerHTML = '<div class="loading">No tag data available</div>';
+                    return;
+                }
+                
+                // Create pie chart for first tag type
+                const firstTagType = tagTypes[0];
+                const tagData = data[firstTagType] || [];
+                
+                const trace = {
+                    labels: tagData.map(t => t.value),
+                    values: tagData.map(t => t.count),
+                    type: 'pie',
+                    textinfo: 'label+percent'
+                };
+                
+                const layout = {
+                    title: `Tag Distribution: ${firstTagType}`,
+                    height: 350
+                };
+                
+                Plotly.newPlot('tag-distribution', [trace], layout, {responsive: true});
+                
+            } catch (error) {
+                document.getElementById('tag-distribution').innerHTML = '<div class="error">Failed to load tag data</div>';
+            }
+        }
+    </script>
+</body>
+</html>

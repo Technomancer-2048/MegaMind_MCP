@@ -1,3 +1,6 @@
 mcp>=1.0.0
 mysql-connector-python>=8.0.0
 asyncio-compat>=0.3.0
+sentence-transformers>=2.2.0
+torch>=1.9.0
+numpy>=1.21.0

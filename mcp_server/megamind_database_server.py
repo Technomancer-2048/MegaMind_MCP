@@ -1,19 +1,22 @@
 #!/usr/bin/env python3
 """
 MegaMind Context Database MCP Server
-Phase 1: Core Infrastructure
+Phase 2: Intelligence Layer Enhancement
 
-Standalone MCP server providing semantic chunk retrieval and context management
-through direct database interactions.
+Standalone MCP server providing semantic chunk retrieval, relationship traversal,
+session management, and advanced context management through direct database interactions.
 """
 
 import json
 import logging
 import os
 import time
+import re
+import numpy as np
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from pathlib import Path
 import asyncio
 
 import mysql.connector
@@ -255,6 +258,235 @@ class DatabaseManager:
         finally:
             if connection:
                 connection.close()
+    
+    def search_by_tags(self, tag_type: str, tag_value: Optional[str] = None, limit: int = 10) -> List[ChunkResult]:
+        """Search chunks by semantic tags"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Build query based on parameters
+            if tag_value:
+                query = """
+                SELECT c.chunk_id, c.content, c.source_document, c.section_path, 
+                       c.chunk_type, c.line_count, c.token_count, c.access_count, c.last_accessed
+                FROM megamind_chunks c
+                JOIN megamind_chunk_tags t ON c.chunk_id = t.chunk_id
+                WHERE t.tag_type = %s AND t.tag_value = %s
+                ORDER BY c.access_count DESC, t.confidence DESC
+                LIMIT %s
+                """
+                params = (tag_type, tag_value, limit)
+            else:
+                query = """
+                SELECT c.chunk_id, c.content, c.source_document, c.section_path, 
+                       c.chunk_type, c.line_count, c.token_count, c.access_count, c.last_accessed
+                FROM megamind_chunks c
+                JOIN megamind_chunk_tags t ON c.chunk_id = t.chunk_id
+                WHERE t.tag_type = %s
+                ORDER BY c.access_count DESC, t.confidence DESC
+                LIMIT %s
+                """
+                params = (tag_type, limit)
+            
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            
+            chunks = []
+            for row in results:
+                chunk = ChunkResult(
+                    chunk_id=row['chunk_id'],
+                    content=row['content'],
+                    source_document=row['source_document'],
+                    section_path=row['section_path'],
+                    chunk_type=row['chunk_type'],
+                    line_count=row['line_count'],
+                    token_count=row['token_count'] or 0,
+                    access_count=row['access_count'],
+                    last_accessed=row['last_accessed'].isoformat() if row['last_accessed'] else ''
+                )
+                chunks.append(chunk)
+            
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to search by tags: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_session_primer(self, last_session_data: str = "", project_context: str = "") -> Dict[str, Any]:
+        """Generate lightweight context primer for session continuity"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Parse CLAUDE.md if available to get session context
+            claude_md_path = Path.cwd() / "CLAUDE.md"
+            claude_context = ""
+            
+            if claude_md_path.exists():
+                try:
+                    with open(claude_md_path, 'r', encoding='utf-8') as f:
+                        claude_content = f.read()
+                        # Extract project overview and current status
+                        if "## Project Overview" in claude_content:
+                            overview_start = claude_content.find("## Project Overview")
+                            overview_end = claude_content.find("\n## ", overview_start + 1)
+                            if overview_end == -1:
+                                overview_end = len(claude_content)
+                            claude_context = claude_content[overview_start:overview_end]
+                except Exception as e:
+                    logger.warning(f"Could not read CLAUDE.md: {e}")
+            
+            # Get recent high-access chunks for context
+            recent_chunks_query = """
+            SELECT chunk_id, section_path, chunk_type, access_count
+            FROM megamind_chunks
+            WHERE access_count > 5
+            ORDER BY last_accessed DESC, access_count DESC
+            LIMIT 10
+            """
+            
+            cursor.execute(recent_chunks_query)
+            recent_chunks = cursor.fetchall()
+            
+            # Get project-relevant tags
+            tags_query = """
+            SELECT tag_type, tag_value, COUNT(*) as usage_count
+            FROM megamind_chunk_tags
+            GROUP BY tag_type, tag_value
+            ORDER BY usage_count DESC
+            LIMIT 20
+            """
+            
+            cursor.execute(tags_query)
+            tags = cursor.fetchall()
+            
+            primer = {
+                "timestamp": datetime.now().isoformat(),
+                "project_context": claude_context,
+                "recent_activity": {
+                    "hot_chunks": [
+                        {
+                            "chunk_id": chunk['chunk_id'],
+                            "section": chunk['section_path'],
+                            "type": chunk['chunk_type'],
+                            "access_count": chunk['access_count']
+                        }
+                        for chunk in recent_chunks
+                    ]
+                },
+                "project_tags": [
+                    {
+                        "type": tag['tag_type'],
+                        "value": tag['tag_value'],
+                        "usage": tag['usage_count']
+                    }
+                    for tag in tags
+                ],
+                "session_notes": last_session_data,
+                "context_summary": f"Project has {len(recent_chunks)} active chunks with recent activity. "
+                                 f"Primary focus areas: {', '.join(set(chunk['chunk_type'] for chunk in recent_chunks[:5]))}"
+            }
+            
+            return primer
+            
+        except Exception as e:
+            logger.error(f"Failed to generate session primer: {e}")
+            return {"error": str(e), "timestamp": datetime.now().isoformat()}
+        finally:
+            if connection:
+                connection.close()
+    
+    def search_by_embedding(self, query: str, limit: int = 10, similarity_threshold: float = 0.7) -> List[ChunkResult]:
+        """Search chunks using embedding similarity (requires sentence transformers)"""
+        connection = None
+        try:
+            # Try to import sentence transformers
+            try:
+                from sentence_transformers import SentenceTransformer
+                import numpy as np
+            except ImportError:
+                logger.warning("Sentence transformers not available, falling back to text search")
+                return self.search_chunks(query, limit)
+            
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Load model (should be cached after first use)
+            model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
+            
+            # Generate query embedding
+            query_embedding = model.encode([query])[0]
+            
+            # Get chunks with embeddings
+            chunks_query = """
+            SELECT chunk_id, content, source_document, section_path, chunk_type,
+                   line_count, token_count, access_count, last_accessed, embedding
+            FROM megamind_chunks
+            WHERE embedding IS NOT NULL AND JSON_LENGTH(embedding) > 0
+            """
+            
+            cursor.execute(chunks_query)
+            chunk_rows = cursor.fetchall()
+            
+            # Calculate similarities
+            similarities = []
+            for row in chunk_rows:
+                try:
+                    # Parse embedding from JSON
+                    embedding_json = row['embedding']
+                    if isinstance(embedding_json, str):
+                        chunk_embedding = np.array(json.loads(embedding_json))
+                    else:
+                        chunk_embedding = np.array(embedding_json)
+                    
+                    # Calculate cosine similarity
+                    similarity = np.dot(query_embedding, chunk_embedding) / (
+                        np.linalg.norm(query_embedding) * np.linalg.norm(chunk_embedding)
+                    )
+                    
+                    if similarity >= similarity_threshold:
+                        similarities.append((row, float(similarity)))
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing embedding for chunk {row['chunk_id']}: {e}")
+                    continue
+            
+            # Sort by similarity and limit results
+            similarities.sort(key=lambda x: x[1], reverse=True)
+            similarities = similarities[:limit]
+            
+            # Convert to ChunkResult objects
+            chunks = []
+            for row, similarity in similarities:
+                chunk = ChunkResult(
+                    chunk_id=row['chunk_id'],
+                    content=row['content'],
+                    source_document=row['source_document'],
+                    section_path=row['section_path'],
+                    chunk_type=row['chunk_type'],
+                    line_count=row['line_count'],
+                    token_count=row['token_count'] or 0,
+                    access_count=row['access_count'],
+                    last_accessed=row['last_accessed'].isoformat() if row['last_accessed'] else '',
+                    relevance_score=similarity
+                )
+                chunks.append(chunk)
+            
+            return chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to search by embedding: {e}")
+            # Fallback to text search
+            return self.search_chunks(query, limit)
+        finally:
+            if connection:
+                connection.close()
 
 class MegaMindMCPServer:
     """MegaMind MCP Server implementation"""
@@ -446,6 +678,128 @@ class MegaMindMCPServer:
                 
             except Exception as e:
                 logger.error(f"Track access failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__search_by_tags(
+            tag_type: str,
+            tag_value: str = None,
+            limit: int = 10
+        ) -> Dict[str, Any]:
+            """
+            Search chunks by semantic tags.
+            
+            Args:
+                tag_type: Type of tag to search (subsystem, function_type, language, etc.)
+                tag_value: Specific tag value to filter by
+                limit: Maximum number of results
+            """
+            try:
+                chunks = self.db_manager.search_by_tags(tag_type, tag_value, limit)
+                
+                results = []
+                for chunk in chunks:
+                    # Track access
+                    self.db_manager.track_access(chunk.chunk_id, f"tag_search:{tag_type}:{tag_value}")
+                    
+                    results.append({
+                        "chunk_id": chunk.chunk_id,
+                        "content": chunk.content[:200] + "..." if len(chunk.content) > 200 else chunk.content,
+                        "source_document": chunk.source_document,
+                        "section_path": chunk.section_path,
+                        "chunk_type": chunk.chunk_type,
+                        "token_count": chunk.token_count,
+                        "access_count": chunk.access_count
+                    })
+                
+                return {
+                    "status": "success",
+                    "tag_type": tag_type,
+                    "tag_value": tag_value,
+                    "total_results": len(results),
+                    "chunks": results
+                }
+                
+            except Exception as e:
+                logger.error(f"Tag search failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__get_session_primer(
+            last_session_data: str = "",
+            project_context: str = ""
+        ) -> Dict[str, Any]:
+            """
+            Generate lightweight context primer for session continuity.
+            
+            Args:
+                last_session_data: Previous session information
+                project_context: Current project context
+            """
+            try:
+                primer = self.db_manager.get_session_primer(last_session_data, project_context)
+                
+                return {
+                    "status": "success",
+                    "primer": primer,
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+            except Exception as e:
+                logger.error(f"Session primer failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__search_by_embedding(
+            query: str,
+            limit: int = 10,
+            similarity_threshold: float = 0.7
+        ) -> Dict[str, Any]:
+            """
+            Search chunks using semantic embedding similarity.
+            
+            Args:
+                query: Search query text
+                limit: Maximum number of results
+                similarity_threshold: Minimum similarity score
+            """
+            try:
+                chunks = self.db_manager.search_by_embedding(query, limit, similarity_threshold)
+                
+                results = []
+                for chunk in chunks:
+                    # Track access
+                    self.db_manager.track_access(chunk.chunk_id, f"embedding_search:{query}")
+                    
+                    results.append({
+                        "chunk_id": chunk.chunk_id,
+                        "content": chunk.content,
+                        "source_document": chunk.source_document,
+                        "section_path": chunk.section_path,
+                        "chunk_type": chunk.chunk_type,
+                        "similarity_score": chunk.relevance_score,
+                        "token_count": chunk.token_count,
+                        "access_count": chunk.access_count
+                    })
+                
+                return {
+                    "status": "success",
+                    "query": query,
+                    "total_results": len(results),
+                    "chunks": results
+                }
+                
+            except Exception as e:
+                logger.error(f"Embedding search failed: {e}")
                 return {
                     "status": "error",
                     "message": str(e)
