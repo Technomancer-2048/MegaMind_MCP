@@ -54,24 +54,57 @@ class MegaMindDatabase:
         return self.connection_pool.get_connection()
     
     def search_chunks(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search chunks using simple text search"""
+        """Search chunks using multi-word text search with improved logic"""
         connection = None
         try:
             connection = self.get_connection()
             cursor = connection.cursor(dictionary=True)
             
-            # Simple LIKE search for now
-            search_query = """
-            SELECT chunk_id, content, source_document, section_path, chunk_type,
-                   line_count, token_count, access_count, last_accessed
-            FROM megamind_chunks
-            WHERE content LIKE %s OR source_document LIKE %s OR section_path LIKE %s
-            ORDER BY access_count DESC
-            LIMIT %s
-            """
+            # Clean and split query into words
+            query = query.strip()
+            if not query:
+                return []
             
-            like_query = f"%{query}%"
-            cursor.execute(search_query, (like_query, like_query, like_query, limit))
+            # For single word, use simple search
+            if ' ' not in query:
+                search_query = """
+                SELECT chunk_id, content, source_document, section_path, chunk_type,
+                       line_count, token_count, access_count, last_accessed
+                FROM megamind_chunks
+                WHERE LOWER(content) LIKE LOWER(%s) 
+                   OR LOWER(source_document) LIKE LOWER(%s) 
+                   OR LOWER(section_path) LIKE LOWER(%s)
+                ORDER BY access_count DESC
+                LIMIT %s
+                """
+                like_pattern = f"%{query}%"
+                cursor.execute(search_query, (like_pattern, like_pattern, like_pattern, limit))
+            else:
+                # Multi-word search: all words must match somewhere in content/document/path
+                words = [word.strip().lower() for word in query.split() if word.strip()]
+                
+                # Build a more reliable query using multiple LIKE conditions
+                search_query = """
+                SELECT chunk_id, content, source_document, section_path, chunk_type,
+                       line_count, token_count, access_count, last_accessed
+                FROM megamind_chunks
+                WHERE """ + " AND ".join([
+                    "(LOWER(content) LIKE %s OR LOWER(source_document) LIKE %s OR LOWER(section_path) LIKE %s)"
+                    for _ in words
+                ]) + """
+                ORDER BY access_count DESC
+                LIMIT %s
+                """
+                
+                # Build parameters list
+                params = []
+                for word in words:
+                    like_pattern = f"%{word}%"
+                    params.extend([like_pattern, like_pattern, like_pattern])
+                params.append(limit)
+                
+                cursor.execute(search_query, params)
+            
             results = cursor.fetchall()
             
             # Convert datetime objects to strings
