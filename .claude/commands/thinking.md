@@ -1,0 +1,1 @@
+sequentialthinking:sequentialthinking thought think hard about "$ARGUMENTS"

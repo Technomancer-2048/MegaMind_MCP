@@ -1,0 +1,3 @@
+- Commit changes with descriptive message
+- Push to git immediately after commit
+- Update any affected feature statuses

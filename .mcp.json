@@ -1,0 +1,52 @@
+{
+  "mcpServers": {
+    "@magicuidesign/mcp": {
+      "command": "npx",
+      "args": ["-y", "@magicuidesign/mcp@latest"]
+    },
+    "Context7": {
+      "command": "npx",
+      "args": ["-y", "@upstash/context7-mcp"]
+    },
+	"sql-files": {
+      "command": "node",
+      "args": ["/Data/MCP_Servers/SQL-Files-MCP/dist/sql_mcp_server.js"]
+    },
+    "sequentialthinking": {
+      "command": "docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "mcp/sequentialthinking"
+      ]
+    },
+    "quick-data": {
+      "command": "/home/claude/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/Data/MCP_Servers/quick-data-mcp/quick-data-mcp",
+        "run",
+        "python",
+        "main.py"
+      ],
+      "env": {
+        "LOG_LEVEL": "INFO"
+      }
+    },
+    "textsmith": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+		"--volume", "/Data/MCP_Servers/MegaMind_MCP:/app/workspace:rw",
+        "textsmith-mcp-server"
+      ],
+      "env": {
+        "MCP_MODE": "stdio",
+		"TEXTSMITH_MAX_FILE_SIZE": "41943040"
+      }
+    }
+  }
+}
