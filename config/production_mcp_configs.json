@@ -1,0 +1,169 @@
+{
+  "mcpServers": {
+    "megamind-ecommerce": {
+      "command": "python",
+      "args": ["mcp_server/context_database_server.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "PROJ_ECOMMERCE",
+        "MEGAMIND_PROJECT_NAME": "E-commerce Platform",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "3306",
+        "DATABASE_NAME": "megamind_database",
+        "DATABASE_USER": "megamind_user",
+        "DATABASE_PASSWORD": "${DATABASE_PASSWORD}",
+        "LOG_LEVEL": "INFO",
+        "CACHE_TTL": "3600",
+        "MAX_SEARCH_RESULTS": "50"
+      },
+      "description": "MegaMind Context Database for E-commerce Platform - handles shopping cart, payment, inventory, and fulfillment knowledge"
+    },
+    "megamind-analytics": {
+      "command": "python",
+      "args": ["mcp_server/context_database_server.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "PROJ_ANALYTICS",
+        "MEGAMIND_PROJECT_NAME": "Data Analytics Pipeline",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "3306",
+        "DATABASE_NAME": "megamind_database",
+        "DATABASE_USER": "megamind_user",
+        "DATABASE_PASSWORD": "${DATABASE_PASSWORD}",
+        "LOG_LEVEL": "INFO",
+        "CACHE_TTL": "3600",
+        "MAX_SEARCH_RESULTS": "50"
+      },
+      "description": "MegaMind Context Database for Analytics Pipeline - handles data processing, ETL, warehousing, and reporting knowledge"
+    },
+    "megamind-mobile": {
+      "command": "python",
+      "args": ["mcp_server/context_database_server.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "PROJ_MOBILE",
+        "MEGAMIND_PROJECT_NAME": "Mobile Application Suite",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "3306",
+        "DATABASE_NAME": "megamind_database",
+        "DATABASE_USER": "megamind_user",
+        "DATABASE_PASSWORD": "${DATABASE_PASSWORD}",
+        "LOG_LEVEL": "INFO",
+        "CACHE_TTL": "3600",
+        "MAX_SEARCH_RESULTS": "50"
+      },
+      "description": "MegaMind Context Database for Mobile Applications - handles iOS, Android, offline capabilities, and mobile security knowledge"
+    },
+    "megamind-devops": {
+      "command": "python",
+      "args": ["mcp_server/context_database_server.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "PROJ_DEVOPS",
+        "MEGAMIND_PROJECT_NAME": "DevOps Infrastructure",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "3306",
+        "DATABASE_NAME": "megamind_database",
+        "DATABASE_USER": "megamind_user",
+        "DATABASE_PASSWORD": "${DATABASE_PASSWORD}",
+        "LOG_LEVEL": "INFO",
+        "CACHE_TTL": "3600",
+        "MAX_SEARCH_RESULTS": "50"
+      },
+      "description": "MegaMind Context Database for DevOps Infrastructure - handles CI/CD, monitoring, scaling, and infrastructure security knowledge"
+    },
+    "megamind-global": {
+      "command": "python",
+      "args": ["mcp_server/context_database_server.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "GLOBAL",
+        "MEGAMIND_PROJECT_NAME": "Global Organizational Standards",
+        "MEGAMIND_DEFAULT_TARGET": "GLOBAL",
+        "DATABASE_HOST": "localhost",
+        "DATABASE_PORT": "3306",
+        "DATABASE_NAME": "megamind_database",
+        "DATABASE_USER": "megamind_admin",
+        "DATABASE_PASSWORD": "${DATABASE_ADMIN_PASSWORD}",
+        "LOG_LEVEL": "INFO",
+        "CACHE_TTL": "7200",
+        "MAX_SEARCH_RESULTS": "100",
+        "ENABLE_GLOBAL_WRITE": "true"
+      },
+      "description": "MegaMind Context Database for Global Standards - manages organization-wide security, database, API, and architecture standards"
+    }
+  },
+  "environment_profiles": {
+    "development": {
+      "database_config": {
+        "host": "localhost",
+        "port": "3306",
+        "name": "megamind_dev",
+        "pool_size": "5",
+        "timeout": "30"
+      },
+      "performance_config": {
+        "cache_ttl": "1800",
+        "max_search_results": "25",
+        "log_level": "DEBUG"
+      }
+    },
+    "staging": {
+      "database_config": {
+        "host": "staging-db.internal",
+        "port": "3306",
+        "name": "megamind_staging",
+        "pool_size": "10",
+        "timeout": "45"
+      },
+      "performance_config": {
+        "cache_ttl": "3600",
+        "max_search_results": "50",
+        "log_level": "INFO"
+      }
+    },
+    "production": {
+      "database_config": {
+        "host": "prod-db-cluster.internal",
+        "port": "3306",
+        "name": "megamind_production",
+        "pool_size": "20",
+        "timeout": "60"
+      },
+      "performance_config": {
+        "cache_ttl": "7200",
+        "max_search_results": "100",
+        "log_level": "WARN"
+      }
+    }
+  },
+  "security_config": {
+    "encryption": {
+      "algorithm": "AES-256-GCM",
+      "key_rotation_days": 90
+    },
+    "authentication": {
+      "session_timeout_hours": 8,
+      "max_concurrent_sessions": 3,
+      "password_policy": {
+        "min_length": 12,
+        "require_complexity": true,
+        "history_count": 5
+      }
+    },
+    "audit": {
+      "retention_days": 365,
+      "log_all_queries": false,
+      "log_security_events": true,
+      "log_admin_actions": true
+    }
+  },
+  "monitoring_config": {
+    "health_check_interval_seconds": 300,
+    "metrics_collection_interval_seconds": 60,
+    "alerting": {
+      "performance_threshold_ms": 5000,
+      "error_rate_threshold_percent": 5,
+      "memory_usage_threshold_percent": 85
+    }
+  }
+}
