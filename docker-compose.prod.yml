@@ -76,13 +76,12 @@ services:
       MEGAMIND_DB_PORT: 3306
       MEGAMIND_DB_NAME: megamind_database
       MEGAMIND_DB_USER: megamind_user
-      MEGAMIND_DB_PASSWORD: ${MYSQL_PASSWORD:-megamind_secure_pass}
+      MEGAMIND_DB_PASSWORD: 6Q93XLI6D1b7CM9QA1sm
       
       # Redis configuration
       REDIS_URL: redis://megamind-redis:6379/3
       
       # MCP Server configuration
-      MEGAMIND_MCP_SERVER_PORT: 8002
       CONNECTION_POOL_SIZE: 20
       
       # Realm configuration
@@ -117,8 +116,6 @@ services:
         condition: service_healthy
       megamind-redis:
         condition: service_healthy
-    ports:
-      - "${MCP_HOST_IP:-127.0.0.1}:${MCP_HOST_PORT:-8002}:8002"
     volumes:
       - megamind_mcp_data:/app/data
       - megamind_mcp_logs:/app/logs
@@ -127,7 +124,7 @@ services:
     networks:
       - megamind-network
     healthcheck:
-      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8002/health', timeout=5)"]
+      test: ["CMD", "python", "-c", "import mysql.connector; mysql.connector.connect(host='megamind-mysql', port=3306, database='megamind_database', user='megamind_user', password='6Q93XLI6D1b7CM9QA1sm').ping()"]
       timeout: 10s
       retries: 3
       interval: 30s
