@@ -18,6 +18,8 @@ from realm_config import get_realm_config, get_realm_access_controller, RealmCon
 from inheritance_resolver import InheritanceResolver
 from promotion_manager import PromotionManager, PromotionType, BusinessImpact, PermissionType
 from realm_security_validator import RealmSecurityValidator
+from services.embedding_service import get_embedding_service
+from services.vector_search import RealmAwareVectorSearchEngine
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,11 @@ class RealmAwareMegaMindDatabase:
         self.inheritance_resolver = None  # Initialized after connection setup
         self.promotion_manager = None  # Initialized after connection setup
         self.security_validator = None  # Initialized after connection setup
+        
+        # Initialize semantic search components
+        self.embedding_service = get_embedding_service()
+        self.vector_search_engine = None  # Initialized after realm config is ready
+        
         self._setup_connection_pool()
     
     def _setup_connection_pool(self):
@@ -60,6 +67,12 @@ class RealmAwareMegaMindDatabase:
             
             # Initialize security validator
             self.security_validator = RealmSecurityValidator(test_connection)
+            
+            # Initialize vector search engine with realm configuration
+            self.vector_search_engine = RealmAwareVectorSearchEngine(
+                project_realm=self.realm_config.config.project_realm,
+                global_realm='GLOBAL'
+            )
             
             test_connection.close()
             
@@ -174,17 +187,108 @@ class RealmAwareMegaMindDatabase:
         return results
     
     def _realm_semantic_search(self, cursor, query: str, limit: int, search_realms: List[str]) -> List[Dict[str, Any]]:
-        """Semantic search across realms (placeholder for future implementation)"""
-        # TODO: Implement semantic search with sentence-transformers
-        # For now, fall back to keyword search
-        logger.info("Semantic search not yet implemented, falling back to keyword search")
-        return self._realm_keyword_search(cursor, query, limit, search_realms)
+        """Semantic search across realms using vector similarity"""
+        if not self.vector_search_engine or not self.embedding_service.is_available():
+            logger.warning("Semantic search not available, falling back to keyword search")
+            return self._realm_keyword_search(cursor, query, limit, search_realms)
+        
+        # Get chunks with embeddings from specified realms
+        realm_placeholders = ', '.join(['%s'] * len(search_realms))
+        chunks_query = f"""
+        SELECT chunk_id, content, source_document, section_path, 
+               chunk_type, realm_id, access_count, last_accessed, embedding,
+               created_at, updated_at, token_count, line_count
+        FROM megamind_chunks
+        WHERE realm_id IN ({realm_placeholders}) 
+          AND embedding IS NOT NULL
+        """
+        
+        cursor.execute(chunks_query, search_realms)
+        chunks_data = cursor.fetchall()
+        
+        # Use vector search engine for semantic search
+        search_results = self.vector_search_engine.dual_realm_semantic_search(
+            query=query,
+            chunks_data=chunks_data,
+            limit=limit
+        )
+        
+        # Convert SearchResult objects back to dictionaries and update access counts
+        result_dicts = []
+        chunk_ids_to_update = []
+        
+        for result in search_results:
+            result_dict = {
+                'chunk_id': result.chunk_id,
+                'content': result.content,
+                'source_document': result.source_document,
+                'section_path': result.section_path,
+                'realm_id': result.realm_id,
+                'similarity_score': result.similarity_score,
+                'final_score': result.final_score,
+                'access_count': result.access_count,
+                'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
+                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self.realm_config.config.project_realm else self.vector_search_engine.global_priority
+            }
+            result_dicts.append(result_dict)
+            chunk_ids_to_update.append(result.chunk_id)
+        
+        # Update access counts for retrieved chunks
+        self._update_access_counts(cursor, chunk_ids_to_update)
+        
+        return result_dicts
     
     def _realm_hybrid_search(self, cursor, query: str, limit: int, search_realms: List[str]) -> List[Dict[str, Any]]:
         """Combine semantic and keyword results with realm prioritization"""
-        # TODO: Implement hybrid search combining semantic and keyword results
-        # For now, use keyword search
-        return self._realm_keyword_search(cursor, query, limit, search_realms)
+        if not self.vector_search_engine or not self.embedding_service.is_available():
+            logger.warning("Semantic search not available, using keyword search only")
+            return self._realm_keyword_search(cursor, query, limit, search_realms)
+        
+        # Get all chunks from specified realms
+        realm_placeholders = ', '.join(['%s'] * len(search_realms))
+        chunks_query = f"""
+        SELECT chunk_id, content, source_document, section_path, 
+               chunk_type, realm_id, access_count, last_accessed, embedding,
+               created_at, updated_at, token_count, line_count
+        FROM megamind_chunks
+        WHERE realm_id IN ({realm_placeholders})
+        """
+        
+        cursor.execute(chunks_query, search_realms)
+        chunks_data = cursor.fetchall()
+        
+        # Use vector search engine for hybrid search
+        search_results = self.vector_search_engine.realm_aware_hybrid_search(
+            query=query,
+            chunks_data=chunks_data,
+            limit=limit
+        )
+        
+        # Convert SearchResult objects back to dictionaries and update access counts
+        result_dicts = []
+        chunk_ids_to_update = []
+        
+        for result in search_results:
+            result_dict = {
+                'chunk_id': result.chunk_id,
+                'content': result.content,
+                'source_document': result.source_document,
+                'section_path': result.section_path,
+                'realm_id': result.realm_id,
+                'similarity_score': result.similarity_score,
+                'keyword_score': result.keyword_score,
+                'final_score': result.final_score,
+                'access_count': result.access_count,
+                'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
+                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self.realm_config.config.project_realm else self.vector_search_engine.global_priority
+            }
+            result_dicts.append(result_dict)
+            chunk_ids_to_update.append(result.chunk_id)
+        
+        # Update access counts for retrieved chunks
+        self._update_access_counts(cursor, chunk_ids_to_update)
+        
+        return result_dicts
     
     def _update_access_counts(self, cursor, chunk_ids: List[str]):
         """Update access counts for accessed chunks"""
@@ -221,9 +325,12 @@ class RealmAwareMegaMindDatabase:
             # Generate new chunk ID
             new_chunk_id = f"chunk_{uuid.uuid4().hex[:12]}"
             
-            # TODO: Generate embedding for new content
-            # embedding = self.embedding_service.generate_embedding(content)
-            embedding = None  # Placeholder for now
+            # Generate embedding for new content with realm context
+            embedding = self.embedding_service.generate_embedding(content, realm_context=target)
+            if embedding is not None:
+                embedding_json = json.dumps(embedding)
+            else:
+                embedding_json = None
             
             # Store in session changes for review workflow
             change_data = {
@@ -234,7 +341,7 @@ class RealmAwareMegaMindDatabase:
                 "chunk_type": "section",  # Default type
                 "line_count": len(content.split('\n')),
                 "realm_id": target,
-                "embedding": embedding,
+                "embedding": embedding_json,
                 "token_count": len(content.split()),
                 "content_hash": None  # TODO: Calculate content hash
             }
@@ -1051,6 +1158,177 @@ class RealmAwareMegaMindDatabase:
         except Exception as e:
             logger.error(f"Failed to log security violation: {e}")
             raise
+        finally:
+            if connection:
+                connection.close()
+    
+    # New Semantic Search Methods for Phase 1
+    
+    def search_chunks_semantic(self, query: str, limit: int = 10, threshold: float = None) -> List[Dict[str, Any]]:
+        """Pure semantic search across Global + Project realms"""
+        return self.search_chunks_dual_realm(query, limit, search_type="semantic")
+    
+    def search_chunks_by_similarity(self, reference_chunk_id: str, limit: int = 10, threshold: float = None) -> List[Dict[str, Any]]:
+        """Find chunks similar to a reference chunk using embeddings"""
+        if not self.vector_search_engine or not self.embedding_service.is_available():
+            logger.warning("Semantic search not available for similarity search")
+            return []
+        
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get reference chunk
+            cursor.execute("""
+                SELECT chunk_id, content, source_document, section_path, 
+                       chunk_type, realm_id, access_count, last_accessed, embedding,
+                       created_at, updated_at, token_count, line_count
+                FROM megamind_chunks 
+                WHERE chunk_id = %s AND embedding IS NOT NULL
+            """, (reference_chunk_id,))
+            
+            reference_chunk = cursor.fetchone()
+            if not reference_chunk:
+                logger.warning(f"Reference chunk {reference_chunk_id} not found or has no embedding")
+                return []
+            
+            # Get search realms
+            search_realms = self.realm_config.get_search_realms()
+            realm_placeholders = ', '.join(['%s'] * len(search_realms))
+            
+            # Get candidate chunks with embeddings
+            cursor.execute(f"""
+                SELECT chunk_id, content, source_document, section_path, 
+                       chunk_type, realm_id, access_count, last_accessed, embedding,
+                       created_at, updated_at, token_count, line_count
+                FROM megamind_chunks
+                WHERE realm_id IN ({realm_placeholders}) 
+                  AND embedding IS NOT NULL
+                  AND chunk_id != %s
+            """, search_realms + [reference_chunk_id])
+            
+            chunks_data = cursor.fetchall()
+            
+            # Use vector search engine for similarity search
+            search_results = self.vector_search_engine.find_similar_chunks(
+                reference_chunk=reference_chunk,
+                chunks_data=chunks_data,
+                limit=limit,
+                threshold=threshold
+            )
+            
+            # Convert to dictionaries and update access counts
+            result_dicts = []
+            chunk_ids_to_update = []
+            
+            for result in search_results:
+                result_dict = {
+                    'chunk_id': result.chunk_id,
+                    'content': result.content,
+                    'source_document': result.source_document,
+                    'section_path': result.section_path,
+                    'realm_id': result.realm_id,
+                    'similarity_score': result.similarity_score,
+                    'final_score': result.final_score,
+                    'access_count': result.access_count,
+                    'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
+                    'reference_chunk_id': reference_chunk_id
+                }
+                result_dicts.append(result_dict)
+                chunk_ids_to_update.append(result.chunk_id)
+            
+            # Update access counts
+            self._update_access_counts(cursor, chunk_ids_to_update)
+            connection.commit()
+            
+            return result_dicts
+            
+        except Exception as e:
+            logger.error(f"Similarity search failed: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_embedding_service_stats(self) -> Dict[str, Any]:
+        """Get embedding service statistics"""
+        return self.embedding_service.get_embedding_stats()
+    
+    def get_vector_search_stats(self) -> Dict[str, Any]:
+        """Get vector search engine statistics"""
+        if self.vector_search_engine:
+            return self.vector_search_engine.get_search_stats()
+        return {'available': False}
+    
+    def batch_generate_embeddings(self, chunk_ids: List[str] = None, realm_id: str = None) -> Dict[str, Any]:
+        """Generate embeddings for chunks that don't have them"""
+        if not self.embedding_service.is_available():
+            return {'error': 'Embedding service not available', 'processed': 0}
+        
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Build query to find chunks without embeddings
+            where_conditions = ["embedding IS NULL"]
+            params = []
+            
+            if chunk_ids:
+                placeholders = ', '.join(['%s'] * len(chunk_ids))
+                where_conditions.append(f"chunk_id IN ({placeholders})")
+                params.extend(chunk_ids)
+            
+            if realm_id:
+                where_conditions.append("realm_id = %s")
+                params.append(realm_id)
+            
+            where_clause = " AND ".join(where_conditions)
+            
+            cursor.execute(f"""
+                SELECT chunk_id, content, realm_id 
+                FROM megamind_chunks 
+                WHERE {where_clause}
+                LIMIT 100
+            """, params)
+            
+            chunks_to_process = cursor.fetchall()
+            
+            if not chunks_to_process:
+                return {'message': 'No chunks need embedding generation', 'processed': 0}
+            
+            # Generate embeddings in batch
+            texts = [chunk['content'] for chunk in chunks_to_process]
+            realm_contexts = [chunk['realm_id'] for chunk in chunks_to_process]
+            
+            embeddings = self.embedding_service.generate_embeddings_batch(texts, realm_contexts)
+            
+            # Update chunks with embeddings
+            processed_count = 0
+            for chunk, embedding in zip(chunks_to_process, embeddings):
+                if embedding is not None:
+                    embedding_json = json.dumps(embedding)
+                    cursor.execute("""
+                        UPDATE megamind_chunks 
+                        SET embedding = %s, updated_at = NOW() 
+                        WHERE chunk_id = %s
+                    """, (embedding_json, chunk['chunk_id']))
+                    processed_count += 1
+            
+            connection.commit()
+            
+            return {
+                'message': f'Successfully generated embeddings for {processed_count} chunks',
+                'processed': processed_count,
+                'total_candidates': len(chunks_to_process)
+            }
+            
+        except Exception as e:
+            logger.error(f"Batch embedding generation failed: {e}")
+            if connection:
+                connection.rollback()
+            return {'error': str(e), 'processed': 0}
         finally:
             if connection:
                 connection.close()
