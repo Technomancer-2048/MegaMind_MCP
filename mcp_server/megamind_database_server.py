@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
 MegaMind Context Database MCP Server
-Phase 2: Intelligence Layer Enhancement
+Phase 3: Bidirectional Flow Implementation
 
 Standalone MCP server providing semantic chunk retrieval, relationship traversal,
-session management, and advanced context management through direct database interactions.
+session management, bidirectional knowledge updates, and advanced context management 
+through direct database interactions.
 """
 
 import json
@@ -12,6 +13,7 @@ import logging
 import os
 import time
 import re
+import uuid
 import numpy as np
 from typing import List, Dict, Optional, Any
 from dataclasses import dataclass
@@ -49,8 +51,29 @@ class ChunkResult:
     last_accessed: str
     relevance_score: float = 0.0
 
-class DatabaseManager:
-    """Manages database connections and operations"""
+@dataclass
+class SessionChange:
+    """Result structure for session change tracking"""
+    change_id: str
+    session_id: str
+    change_type: str
+    chunk_id: Optional[str]
+    target_chunk_id: Optional[str] 
+    change_data: Dict[str, Any]
+    impact_score: float
+    timestamp: str
+    status: str
+
+@dataclass
+class ChangeValidationResult:
+    """Result structure for change validation"""
+    is_valid: bool
+    error_message: Optional[str]
+    warnings: List[str]
+    impact_assessment: Dict[str, Any]
+
+class MegaMindDatabase:
+    """Manages database connections and operations for MegaMind context system"""
     
     def __init__(self, config: Dict[str, Any]):
         self.config = config
@@ -488,12 +511,529 @@ class DatabaseManager:
             if connection:
                 connection.close()
 
+    def update_chunk(self, chunk_id: str, new_content: str, session_id: str) -> Dict[str, Any]:
+        """Buffer chunk modification for review"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Validate chunk exists
+            cursor.execute("SELECT * FROM megamind_chunks WHERE chunk_id = %s", (chunk_id,))
+            original_chunk = cursor.fetchone()
+            if not original_chunk:
+                return {"success": False, "error": f"Chunk {chunk_id} not found"}
+            
+            # Calculate impact score based on access patterns
+            impact_score = min(original_chunk['access_count'] / 100.0, 1.0)
+            
+            # Generate change ID
+            change_id = f"change_{uuid.uuid4().hex[:12]}"
+            
+            # Store change data
+            change_data = {
+                "original_content": original_chunk['content'],
+                "new_content": new_content,
+                "chunk_metadata": {
+                    "source_document": original_chunk['source_document'],
+                    "section_path": original_chunk['section_path'],
+                    "chunk_type": original_chunk['chunk_type']
+                }
+            }
+            
+            # Insert session change
+            cursor.execute("""
+                INSERT INTO megamind_session_changes 
+                (change_id, session_id, change_type, chunk_id, change_data, impact_score)
+                VALUES (%s, %s, 'update', %s, %s, %s)
+            """, (change_id, session_id, chunk_id, json.dumps(change_data), impact_score))
+            
+            # Update session metadata
+            cursor.execute("""
+                INSERT INTO megamind_session_metadata (session_id, user_context, pending_changes_count)
+                VALUES (%s, 'ai_session', 1)
+                ON DUPLICATE KEY UPDATE 
+                    pending_changes_count = pending_changes_count + 1,
+                    last_activity = CURRENT_TIMESTAMP
+            """, (session_id,))
+            
+            connection.commit()
+            
+            return {
+                "success": True,
+                "change_id": change_id,
+                "impact_score": impact_score,
+                "requires_review": impact_score > 0.5
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to buffer chunk update for {chunk_id}: {e}")
+            if connection:
+                connection.rollback()
+            return {"success": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
+    def create_chunk(self, content: str, source_document: str, section_path: str, session_id: str) -> Dict[str, Any]:
+        """Buffer new chunk creation for review"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Generate temporary chunk ID for the change
+            temp_chunk_id = f"temp_{uuid.uuid4().hex[:12]}"
+            change_id = f"change_{uuid.uuid4().hex[:12]}"
+            
+            # Calculate basic metrics
+            line_count = len(content.split('\n'))
+            token_count = len(content.split())
+            
+            # Store change data
+            change_data = {
+                "content": content,
+                "source_document": source_document,
+                "section_path": section_path,
+                "chunk_type": "section",  # Default type, can be refined
+                "line_count": line_count,
+                "token_count": token_count,
+                "temp_chunk_id": temp_chunk_id
+            }
+            
+            # Impact score for new chunks is lower by default
+            impact_score = 0.3
+            
+            # Insert session change
+            cursor.execute("""
+                INSERT INTO megamind_session_changes 
+                (change_id, session_id, change_type, change_data, impact_score)
+                VALUES (%s, %s, 'create', %s, %s)
+            """, (change_id, session_id, json.dumps(change_data), impact_score))
+            
+            # Update session metadata
+            cursor.execute("""
+                INSERT INTO megamind_session_metadata (session_id, user_context, pending_changes_count)
+                VALUES (%s, 'ai_session', 1)
+                ON DUPLICATE KEY UPDATE 
+                    pending_changes_count = pending_changes_count + 1,
+                    last_activity = CURRENT_TIMESTAMP
+            """, (session_id,))
+            
+            connection.commit()
+            
+            return {
+                "success": True,
+                "change_id": change_id,
+                "temp_chunk_id": temp_chunk_id,
+                "impact_score": impact_score
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to buffer chunk creation: {e}")
+            if connection:
+                connection.rollback()
+            return {"success": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
+    def add_relationship(self, chunk_id_1: str, chunk_id_2: str, relationship_type: str, session_id: str) -> Dict[str, Any]:
+        """Buffer relationship addition for review"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Validate chunks exist
+            cursor.execute("SELECT chunk_id FROM megamind_chunks WHERE chunk_id IN (%s, %s)", 
+                         (chunk_id_1, chunk_id_2))
+            existing_chunks = [row['chunk_id'] for row in cursor.fetchall()]
+            
+            if len(existing_chunks) != 2:
+                missing = set([chunk_id_1, chunk_id_2]) - set(existing_chunks)
+                return {"success": False, "error": f"Chunks not found: {missing}"}
+            
+            # Check if relationship already exists
+            cursor.execute("""
+                SELECT relationship_id FROM megamind_chunk_relationships 
+                WHERE chunk_id = %s AND related_chunk_id = %s AND relationship_type = %s
+            """, (chunk_id_1, chunk_id_2, relationship_type))
+            
+            if cursor.fetchone():
+                return {"success": False, "error": "Relationship already exists"}
+            
+            # Generate change ID
+            change_id = f"change_{uuid.uuid4().hex[:12]}"
+            
+            # Store change data
+            change_data = {
+                "chunk_id_1": chunk_id_1,
+                "chunk_id_2": chunk_id_2,
+                "relationship_type": relationship_type,
+                "strength": 0.8,  # Default strength
+                "discovered_by": "ai_analysis"
+            }
+            
+            # Impact score for relationships is moderate
+            impact_score = 0.4
+            
+            # Insert session change
+            cursor.execute("""
+                INSERT INTO megamind_session_changes 
+                (change_id, session_id, change_type, chunk_id, target_chunk_id, change_data, impact_score)
+                VALUES (%s, %s, 'relate', %s, %s, %s, %s)
+            """, (change_id, session_id, chunk_id_1, chunk_id_2, json.dumps(change_data), impact_score))
+            
+            # Update session metadata
+            cursor.execute("""
+                INSERT INTO megamind_session_metadata (session_id, user_context, pending_changes_count)
+                VALUES (%s, 'ai_session', 1)
+                ON DUPLICATE KEY UPDATE 
+                    pending_changes_count = pending_changes_count + 1,
+                    last_activity = CURRENT_TIMESTAMP
+            """, (session_id,))
+            
+            connection.commit()
+            
+            return {
+                "success": True,
+                "change_id": change_id,
+                "impact_score": impact_score
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to buffer relationship addition: {e}")
+            if connection:
+                connection.rollback()
+            return {"success": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
+    def get_pending_changes(self, session_id: str) -> List[SessionChange]:
+        """Retrieve all pending changes for a session"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            cursor.execute("""
+                SELECT change_id, session_id, change_type, chunk_id, target_chunk_id, 
+                       change_data, impact_score, timestamp, status
+                FROM megamind_session_changes 
+                WHERE session_id = %s AND status = 'pending'
+                ORDER BY impact_score DESC, timestamp ASC
+            """, (session_id,))
+            
+            changes = []
+            for row in cursor.fetchall():
+                changes.append(SessionChange(
+                    change_id=row['change_id'],
+                    session_id=row['session_id'],
+                    change_type=row['change_type'],
+                    chunk_id=row['chunk_id'],
+                    target_chunk_id=row['target_chunk_id'],
+                    change_data=json.loads(row['change_data']),
+                    impact_score=float(row['impact_score']),
+                    timestamp=row['timestamp'].isoformat(),
+                    status=row['status']
+                ))
+            
+            return changes
+            
+        except Exception as e:
+            logger.error(f"Failed to get pending changes for session {session_id}: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+
+    def commit_session_changes(self, session_id: str, approved_changes: List[str]) -> Dict[str, Any]:
+        """Commit approved changes from session buffer"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Start transaction
+            connection.start_transaction()
+            
+            committed_changes = {
+                "chunks_modified": 0,
+                "chunks_created": 0,
+                "relationships_added": 0,
+                "tags_added": 0
+            }
+            
+            rollback_data = []
+            
+            for change_id in approved_changes:
+                # Get change details
+                cursor.execute("""
+                    SELECT * FROM megamind_session_changes 
+                    WHERE change_id = %s AND session_id = %s AND status = 'pending'
+                """, (change_id, session_id))
+                
+                change = cursor.fetchone()
+                if not change:
+                    continue
+                
+                change_data = json.loads(change['change_data'])
+                
+                if change['change_type'] == 'update':
+                    # Update existing chunk
+                    original_chunk = cursor.execute("""
+                        SELECT * FROM megamind_chunks WHERE chunk_id = %s
+                    """, (change['chunk_id'],))
+                    original_chunk = cursor.fetchone()
+                    
+                    if original_chunk:
+                        rollback_data.append({
+                            "type": "update",
+                            "chunk_id": change['chunk_id'],
+                            "original_content": original_chunk['content']
+                        })
+                        
+                        cursor.execute("""
+                            UPDATE megamind_chunks 
+                            SET content = %s, last_modified = CURRENT_TIMESTAMP 
+                            WHERE chunk_id = %s
+                        """, (change_data['new_content'], change['chunk_id']))
+                        
+                        committed_changes["chunks_modified"] += 1
+                
+                elif change['change_type'] == 'create':
+                    # Create new chunk
+                    new_chunk_id = f"chunk_{uuid.uuid4().hex[:12]}"
+                    
+                    cursor.execute("""
+                        INSERT INTO megamind_chunks 
+                        (chunk_id, content, source_document, section_path, chunk_type, 
+                         line_count, token_count, created_at, last_modified)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+                    """, (
+                        new_chunk_id, change_data['content'], change_data['source_document'],
+                        change_data['section_path'], change_data['chunk_type'],
+                        change_data['line_count'], change_data['token_count']
+                    ))
+                    
+                    rollback_data.append({
+                        "type": "create",
+                        "chunk_id": new_chunk_id
+                    })
+                    
+                    committed_changes["chunks_created"] += 1
+                
+                elif change['change_type'] == 'relate':
+                    # Add relationship
+                    cursor.execute("""
+                        INSERT INTO megamind_chunk_relationships 
+                        (chunk_id, related_chunk_id, relationship_type, strength, discovered_by)
+                        VALUES (%s, %s, %s, %s, %s)
+                    """, (
+                        change_data['chunk_id_1'], change_data['chunk_id_2'],
+                        change_data['relationship_type'], change_data['strength'],
+                        change_data['discovered_by']
+                    ))
+                    
+                    rollback_data.append({
+                        "type": "relate",
+                        "chunk_id_1": change_data['chunk_id_1'],
+                        "chunk_id_2": change_data['chunk_id_2'],
+                        "relationship_type": change_data['relationship_type']
+                    })
+                    
+                    committed_changes["relationships_added"] += 1
+                
+                # Mark change as approved
+                cursor.execute("""
+                    UPDATE megamind_session_changes 
+                    SET status = 'approved' 
+                    WHERE change_id = %s
+                """, (change_id,))
+            
+            # Create contribution record
+            contribution_id = f"contrib_{uuid.uuid4().hex[:12]}"
+            cursor.execute("""
+                INSERT INTO megamind_knowledge_contributions 
+                (contribution_id, session_id, chunks_modified, chunks_created, 
+                 relationships_added, tags_added, rollback_data)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                contribution_id, session_id, committed_changes["chunks_modified"],
+                committed_changes["chunks_created"], committed_changes["relationships_added"],
+                committed_changes["tags_added"], json.dumps(rollback_data)
+            ))
+            
+            # Update session metadata
+            cursor.execute("""
+                UPDATE megamind_session_metadata 
+                SET pending_changes_count = pending_changes_count - %s 
+                WHERE session_id = %s
+            """, (len(approved_changes), session_id))
+            
+            connection.commit()
+            
+            return {
+                "success": True,
+                "contribution_id": contribution_id,
+                "changes_committed": committed_changes,
+                "total_changes": len(approved_changes)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to commit session changes: {e}")
+            if connection:
+                connection.rollback()
+            return {"success": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
+    def rollback_session_changes(self, session_id: str) -> Dict[str, Any]:
+        """Discard all pending changes for a session"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Count pending changes
+            cursor.execute("""
+                SELECT COUNT(*) as count FROM megamind_session_changes 
+                WHERE session_id = %s AND status = 'pending'
+            """, (session_id,))
+            
+            change_count = cursor.fetchone()['count']
+            
+            # Mark all pending changes as rejected
+            cursor.execute("""
+                UPDATE megamind_session_changes 
+                SET status = 'rejected' 
+                WHERE session_id = %s AND status = 'pending'
+            """, (session_id,))
+            
+            # Reset session pending count
+            cursor.execute("""
+                UPDATE megamind_session_metadata 
+                SET pending_changes_count = 0 
+                WHERE session_id = %s
+            """, (session_id,))
+            
+            connection.commit()
+            
+            return {
+                "success": True,
+                "changes_discarded": change_count
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to rollback session changes: {e}")
+            if connection:
+                connection.rollback()
+            return {"success": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
+    def get_change_summary(self, session_id: str) -> Dict[str, Any]:
+        """Generate summary of pending changes with impact analysis"""
+        connection = None
+        try:
+            connection = self.connection_pool.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get session metadata
+            cursor.execute("""
+                SELECT * FROM megamind_session_metadata WHERE session_id = %s
+            """, (session_id,))
+            
+            session_meta = cursor.fetchone()
+            if not session_meta:
+                return {"error": "Session not found"}
+            
+            # Get pending changes grouped by type and impact
+            cursor.execute("""
+                SELECT change_type, 
+                       COUNT(*) as count,
+                       AVG(impact_score) as avg_impact,
+                       MAX(impact_score) as max_impact,
+                       SUM(CASE WHEN impact_score > 0.7 THEN 1 ELSE 0 END) as critical_count,
+                       SUM(CASE WHEN impact_score BETWEEN 0.3 AND 0.7 THEN 1 ELSE 0 END) as important_count,
+                       SUM(CASE WHEN impact_score < 0.3 THEN 1 ELSE 0 END) as standard_count
+                FROM megamind_session_changes 
+                WHERE session_id = %s AND status = 'pending'
+                GROUP BY change_type
+            """, (session_id,))
+            
+            changes_by_type = {}
+            total_critical = 0
+            total_important = 0
+            total_standard = 0
+            
+            for row in cursor.fetchall():
+                changes_by_type[row['change_type']] = {
+                    "count": row['count'],
+                    "avg_impact": float(row['avg_impact']),
+                    "max_impact": float(row['max_impact']),
+                    "critical_count": row['critical_count'],
+                    "important_count": row['important_count'],
+                    "standard_count": row['standard_count']
+                }
+                total_critical += row['critical_count']
+                total_important += row['important_count']
+                total_standard += row['standard_count']
+            
+            # Get high-impact changes details
+            cursor.execute("""
+                SELECT sc.change_id, sc.change_type, sc.chunk_id, sc.impact_score,
+                       mc.source_document, mc.section_path, mc.access_count
+                FROM megamind_session_changes sc
+                LEFT JOIN megamind_chunks mc ON sc.chunk_id = mc.chunk_id
+                WHERE sc.session_id = %s AND sc.status = 'pending' AND sc.impact_score > 0.5
+                ORDER BY sc.impact_score DESC
+                LIMIT 10
+            """, (session_id,))
+            
+            high_impact_changes = []
+            for row in cursor.fetchall():
+                high_impact_changes.append({
+                    "change_id": row['change_id'],
+                    "change_type": row['change_type'],
+                    "chunk_id": row['chunk_id'],
+                    "impact_score": float(row['impact_score']),
+                    "source_document": row['source_document'],
+                    "section_path": row['section_path'],
+                    "access_count": row['access_count'] if row['access_count'] else 0
+                })
+            
+            return {
+                "session_id": session_id,
+                "total_pending": session_meta['pending_changes_count'],
+                "priority_breakdown": {
+                    "critical": total_critical,
+                    "important": total_important,
+                    "standard": total_standard
+                },
+                "changes_by_type": changes_by_type,
+                "high_impact_changes": high_impact_changes,
+                "session_start": session_meta['start_timestamp'].isoformat(),
+                "last_activity": session_meta['last_activity'].isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to generate change summary: {e}")
+            return {"error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+
 class MegaMindMCPServer:
     """MegaMind MCP Server implementation"""
     
     def __init__(self, db_config: Dict[str, Any]):
         self.server = Server("megamind-database")
-        self.db_manager = DatabaseManager(db_config)
+        self.db_manager = MegaMindDatabase(db_config)
         self._setup_tools()
     
     def _setup_tools(self):
@@ -800,6 +1340,195 @@ class MegaMindMCPServer:
                 
             except Exception as e:
                 logger.error(f"Embedding search failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        # Phase 3: Bidirectional Flow MCP Functions
+        
+        @self.server.tool()
+        async def mcp__megamind_db__update_chunk(
+            chunk_id: str,
+            new_content: str,
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Buffer chunk modification for review.
+            
+            Args:
+                chunk_id: ID of chunk to update
+                new_content: New content for the chunk
+                session_id: Session identifier for change tracking
+            """
+            try:
+                result = self.db_manager.update_chunk(chunk_id, new_content, session_id)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Update chunk failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__create_chunk(
+            content: str,
+            source_document: str,
+            section_path: str,
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Buffer new chunk creation for review.
+            
+            Args:
+                content: Content of the new chunk
+                source_document: Source document name
+                section_path: Section path within document
+                session_id: Session identifier for change tracking
+            """
+            try:
+                result = self.db_manager.create_chunk(content, source_document, section_path, session_id)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Create chunk failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__add_relationship(
+            chunk_id_1: str,
+            chunk_id_2: str,
+            relationship_type: str,
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Buffer relationship addition for review.
+            
+            Args:
+                chunk_id_1: First chunk ID
+                chunk_id_2: Second chunk ID  
+                relationship_type: Type of relationship (references, depends_on, enhances, etc.)
+                session_id: Session identifier for change tracking
+            """
+            try:
+                result = self.db_manager.add_relationship(chunk_id_1, chunk_id_2, relationship_type, session_id)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Add relationship failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__get_pending_changes(
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Retrieve all pending changes for a session.
+            
+            Args:
+                session_id: Session identifier
+            """
+            try:
+                changes = self.db_manager.get_pending_changes(session_id)
+                
+                results = []
+                for change in changes:
+                    results.append({
+                        "change_id": change.change_id,
+                        "change_type": change.change_type,
+                        "chunk_id": change.chunk_id,
+                        "target_chunk_id": change.target_chunk_id,
+                        "change_data": change.change_data,
+                        "impact_score": change.impact_score,
+                        "timestamp": change.timestamp,
+                        "status": change.status
+                    })
+                
+                return {
+                    "status": "success",
+                    "session_id": session_id,
+                    "total_pending": len(results),
+                    "changes": results
+                }
+                
+            except Exception as e:
+                logger.error(f"Get pending changes failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__commit_session_changes(
+            session_id: str,
+            approved_changes: List[str]
+        ) -> Dict[str, Any]:
+            """
+            Commit approved changes from session buffer.
+            
+            Args:
+                session_id: Session identifier
+                approved_changes: List of change IDs to commit
+            """
+            try:
+                result = self.db_manager.commit_session_changes(session_id, approved_changes)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Commit session changes failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__rollback_session_changes(
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Discard all pending changes for a session.
+            
+            Args:
+                session_id: Session identifier
+            """
+            try:
+                result = self.db_manager.rollback_session_changes(session_id)
+                return result
+                
+            except Exception as e:
+                logger.error(f"Rollback session changes failed: {e}")
+                return {
+                    "status": "error",
+                    "message": str(e)
+                }
+        
+        @self.server.tool()
+        async def mcp__megamind_db__get_change_summary(
+            session_id: str
+        ) -> Dict[str, Any]:
+            """
+            Generate summary of pending changes with impact analysis.
+            
+            Args:
+                session_id: Session identifier
+            """
+            try:
+                result = self.db_manager.get_change_summary(session_id)
+                return {
+                    "status": "success",
+                    "summary": result
+                }
+                
+            except Exception as e:
+                logger.error(f"Get change summary failed: {e}")
                 return {
                     "status": "error",
                     "message": str(e)

@@ -1,0 +1,416 @@
+{% extends "base.html" %}
+
+{% block title %}Session Review - {{ session.session_id }}{% endblock %}
+
+{% block header_title %}Session Review{% endblock %}
+{% block header_subtitle %}{{ session.session_id }} - {{ summary.total }} pending changes{% endblock %}
+
+{% block content %}
+<div class="mb-4">
+    <a href="/" class="btn btn-secondary">← Back to Dashboard</a>
+    <button onclick="refreshSession()" class="btn" id="refresh-btn">🔄 Refresh</button>
+</div>
+
+<div class="grid grid-2 mb-4">
+    <div class="card">
+        <div class="card-header">
+            <h3>Session Information</h3>
+        </div>
+        <div class="card-body">
+            <p><strong>Session ID:</strong> {{ session.session_id }}</p>
+            <p><strong>Context:</strong> {{ session.user_context }}</p>
+            {% if session.project_context %}
+                <p><strong>Project:</strong> {{ session.project_context }}</p>
+            {% endif %}
+            <p><strong>Started:</strong> <span class="timestamp">{{ session.start_timestamp }}</span></p>
+            <p><strong>Last Activity:</strong> <span class="timestamp">{{ session.last_activity }}</span></p>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-header">
+            <h3>Change Summary</h3>
+        </div>
+        <div class="card-body">
+            <div class="grid grid-3 mb-3">
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #ef4444;">
+                        {{ summary.priority_breakdown.critical }}
+                    </div>
+                    <div class="text-sm">Critical</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #f59e0b;">
+                        {{ summary.priority_breakdown.important }}
+                    </div>
+                    <div class="text-sm">Important</div>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 1.5rem; font-weight: bold; color: #10b981;">
+                        {{ summary.priority_breakdown.standard }}
+                    </div>
+                    <div class="text-sm">Standard</div>
+                </div>
+            </div>
+            
+            <p class="text-sm">
+                <strong>By Type:</strong>
+                {% for type, count in summary.by_type.items() %}
+                    {{ type|title }}: {{ count }}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </p>
+            <p class="text-sm">
+                <strong>Average Impact:</strong> {{ "%.3f"|format(summary.avg_impact) }}
+            </p>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-header">
+        <h3>Bulk Actions</h3>
+    </div>
+    <div class="card-body">
+        <div class="grid grid-2">
+            <div>
+                <label>
+                    <input type="checkbox" id="select-all"> Select All Changes
+                </label>
+                <div class="mt-2">
+                    <label>
+                        <input type="checkbox" id="select-safe"> Select Only Standard Priority
+                    </label>
+                </div>
+            </div>
+            
+            <div style="text-align: right;">
+                <button onclick="approveSelected()" class="btn btn-success" id="approve-selected" disabled>
+                    ✓ Approve Selected
+                </button>
+                <button onclick="rejectSelected()" class="btn btn-danger" id="reject-selected" disabled>
+                    ✗ Reject Selected
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="changes-container">
+    {% for change in changes %}
+    <div class="card mb-3 priority-{{ change.priority_level }} change-card" data-change-id="{{ change.change_id }}">
+        <div class="card-header">
+            <div class="grid grid-2">
+                <div>
+                    <label style="cursor: pointer;">
+                        <input type="checkbox" class="change-checkbox" value="{{ change.change_id }}" style="margin-right: 10px;">
+                        <strong>{{ change.change_type|title }} Change</strong>
+                        <span class="badge badge-{{ change.priority_level }}">{{ change.priority_level|title }}</span>
+                    </label>
+                </div>
+                
+                <div style="text-align: right;">
+                    <span class="text-sm text-muted">
+                        Impact: {{ "%.3f"|format(change.impact_score) }} | 
+                        <span class="timestamp">{{ change.timestamp }}</span>
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card-body">
+            <div class="mb-3">
+                <strong>Source:</strong> {{ change.source_document or 'New Document' }}
+                {% if change.section_path %}
+                    / {{ change.section_path }}
+                {% endif %}
+                {% if change.chunk_type %}
+                    ({{ change.chunk_type }})
+                {% endif %}
+                
+                {% if change.access_count %}
+                    | <strong>Access Count:</strong> {{ change.access_count }}
+                {% endif %}
+            </div>
+            
+            {% if change.change_type == 'update' %}
+                <div class="mb-3">
+                    <h5>Content Change Preview:</h5>
+                    <div style="background: #f8fafc; padding: 10px; border-radius: 4px; margin-bottom: 10px;">
+                        <strong>Before:</strong><br>
+                        <code style="white-space: pre-wrap;">{{ change.change_data.original_content[:200] }}{% if change.change_data.original_content|length > 200 %}...{% endif %}</code>
+                    </div>
+                    <div style="background: #f0fdf4; padding: 10px; border-radius: 4px;">
+                        <strong>After:</strong><br>
+                        <code style="white-space: pre-wrap;">{{ change.change_data.new_content[:200] }}{% if change.change_data.new_content|length > 200 %}...{% endif %}</code>
+                    </div>
+                </div>
+                
+                <button class="btn btn-secondary btn-sm" onclick="showFullDiff('{{ change.change_id }}')">
+                    View Full Content
+                </button>
+                
+            {% elif change.change_type == 'create' %}
+                <div class="mb-3">
+                    <h5>New Chunk Content:</h5>
+                    <div style="background: #f0fdf4; padding: 10px; border-radius: 4px;">
+                        <code style="white-space: pre-wrap;">{{ change.change_data.content[:300] }}{% if change.change_data.content|length > 300 %}...{% endif %}</code>
+                    </div>
+                    <p class="text-sm text-muted mt-2">
+                        Lines: {{ change.change_data.line_count }} | 
+                        Tokens: {{ change.change_data.token_count }} |
+                        Type: {{ change.change_data.chunk_type }}
+                    </p>
+                </div>
+                
+                <button class="btn btn-secondary btn-sm" onclick="showFullContent('{{ change.change_id }}')">
+                    View Full Content
+                </button>
+                
+            {% elif change.change_type == 'relate' %}
+                <div class="mb-3">
+                    <h5>Relationship Details:</h5>
+                    <p>
+                        <strong>Type:</strong> {{ change.change_data.relationship_type }}<br>
+                        <strong>From:</strong> {{ change.chunk_id }}<br>
+                        <strong>To:</strong> {{ change.target_chunk_id }}<br>
+                        <strong>Strength:</strong> {{ change.change_data.strength }}<br>
+                        <strong>Discovered by:</strong> {{ change.change_data.discovered_by }}
+                    </p>
+                    
+                    {% if change.target_source_document %}
+                        <p class="text-sm text-muted">
+                            <strong>Target:</strong> {{ change.target_source_document }} / {{ change.target_section_path }}
+                        </p>
+                    {% endif %}
+                </div>
+            {% endif %}
+            
+            <div class="mt-3" style="text-align: right;">
+                <button onclick="approveChange('{{ change.change_id }}')" class="btn btn-success btn-sm">
+                    ✓ Approve
+                </button>
+                <button onclick="rejectChange('{{ change.change_id }}')" class="btn btn-danger btn-sm">
+                    ✗ Reject
+                </button>
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+
+<div id="status-message"></div>
+
+<!-- Modal for full content view -->
+<div id="content-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 10px; max-width: 80%; max-height: 80%; overflow: auto;">
+        <div style="text-align: right; margin-bottom: 15px;">
+            <button onclick="closeModal()" class="btn btn-secondary">✕ Close</button>
+        </div>
+        <div id="modal-content"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let sessionId = '{{ session.session_id }}';
+
+// Format timestamps on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const timestampElements = document.querySelectorAll('.timestamp');
+    timestampElements.forEach(function(element) {
+        const timestamp = element.textContent;
+        element.textContent = formatTimestamp(timestamp);
+    });
+    
+    // Setup checkbox event listeners
+    setupCheckboxes();
+});
+
+function setupCheckboxes() {
+    const selectAll = document.getElementById('select-all');
+    const selectSafe = document.getElementById('select-safe');
+    const checkboxes = document.querySelectorAll('.change-checkbox');
+    
+    selectAll.addEventListener('change', function() {
+        checkboxes.forEach(cb => cb.checked = this.checked);
+        updateBulkButtons();
+    });
+    
+    selectSafe.addEventListener('change', function() {
+        if (this.checked) {
+            checkboxes.forEach(cb => {
+                const card = cb.closest('.change-card');
+                cb.checked = card.classList.contains('priority-standard');
+            });
+        } else {
+            checkboxes.forEach(cb => cb.checked = false);
+        }
+        updateBulkButtons();
+    });
+    
+    checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateBulkButtons);
+    });
+}
+
+function updateBulkButtons() {
+    const selected = document.querySelectorAll('.change-checkbox:checked');
+    const approveBtn = document.getElementById('approve-selected');
+    const rejectBtn = document.getElementById('reject-selected');
+    
+    if (selected.length > 0) {
+        approveBtn.disabled = false;
+        rejectBtn.disabled = false;
+        approveBtn.textContent = `✓ Approve Selected (${selected.length})`;
+        rejectBtn.textContent = `✗ Reject Selected (${selected.length})`;
+    } else {
+        approveBtn.disabled = true;
+        rejectBtn.disabled = true;
+        approveBtn.textContent = '✓ Approve Selected';
+        rejectBtn.textContent = '✗ Reject Selected';
+    }
+}
+
+function approveSelected() {
+    const selected = Array.from(document.querySelectorAll('.change-checkbox:checked'))
+                          .map(cb => cb.value);
+    
+    if (selected.length === 0) return;
+    
+    if (confirm(`Approve ${selected.length} changes?`)) {
+        processChanges('/api/approve', { approved_changes: selected });
+    }
+}
+
+function rejectSelected() {
+    const selected = Array.from(document.querySelectorAll('.change-checkbox:checked'))
+                          .map(cb => cb.value);
+    
+    if (selected.length === 0) return;
+    
+    if (confirm(`Reject ${selected.length} changes?`)) {
+        processChanges('/api/reject', { rejected_changes: selected });
+    }
+}
+
+function approveChange(changeId) {
+    if (confirm('Approve this change?')) {
+        processChanges('/api/approve', { approved_changes: [changeId] });
+    }
+}
+
+function rejectChange(changeId) {
+    if (confirm('Reject this change?')) {
+        processChanges('/api/reject', { rejected_changes: [changeId] });
+    }
+}
+
+function processChanges(endpoint, data) {
+    const statusDiv = document.getElementById('status-message');
+    showLoading(statusDiv);
+    
+    fetch(endpoint, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            session_id: sessionId,
+            ...data
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showSuccess(statusDiv, `Successfully processed ${data.approved_changes?.length || data.rejected_changes?.length} changes`);
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+        } else {
+            showError(statusDiv, result.error || 'Unknown error occurred');
+        }
+    })
+    .catch(error => {
+        showError(statusDiv, 'Network error: ' + error.message);
+    });
+}
+
+function refreshSession() {
+    const btn = document.getElementById('refresh-btn');
+    btn.disabled = true;
+    btn.textContent = '🔄 Refreshing...';
+    
+    setTimeout(() => {
+        window.location.reload();
+    }, 500);
+}
+
+function showFullDiff(changeId) {
+    const change = findChangeData(changeId);
+    if (!change) return;
+    
+    const content = `
+        <h3>Full Content Comparison</h3>
+        <div style="margin-bottom: 20px;">
+            <h4>Before:</h4>
+            <pre style="background: #f8fafc; padding: 15px; border-radius: 4px; overflow: auto; max-height: 200px;">${escapeHtml(change.change_data.original_content)}</pre>
+        </div>
+        <div>
+            <h4>After:</h4>
+            <pre style="background: #f0fdf4; padding: 15px; border-radius: 4px; overflow: auto; max-height: 200px;">${escapeHtml(change.change_data.new_content)}</pre>
+        </div>
+    `;
+    
+    showModal(content);
+}
+
+function showFullContent(changeId) {
+    const change = findChangeData(changeId);
+    if (!change) return;
+    
+    const content = `
+        <h3>Full New Chunk Content</h3>
+        <div style="margin-bottom: 15px;">
+            <p><strong>Source:</strong> ${change.change_data.source_document}</p>
+            <p><strong>Section:</strong> ${change.change_data.section_path}</p>
+            <p><strong>Type:</strong> ${change.change_data.chunk_type}</p>
+            <p><strong>Lines:</strong> ${change.change_data.line_count} | <strong>Tokens:</strong> ${change.change_data.token_count}</p>
+        </div>
+        <div>
+            <h4>Content:</h4>
+            <pre style="background: #f0fdf4; padding: 15px; border-radius: 4px; overflow: auto; max-height: 400px;">${escapeHtml(change.change_data.content)}</pre>
+        </div>
+    `;
+    
+    showModal(content);
+}
+
+function findChangeData(changeId) {
+    const changes = {{ changes | tojson }};
+    return changes.find(c => c.change_id === changeId);
+}
+
+function showModal(content) {
+    document.getElementById('modal-content').innerHTML = content;
+    document.getElementById('content-modal').style.display = 'block';
+}
+
+function closeModal() {
+    document.getElementById('content-modal').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Close modal on escape key
+document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+        closeModal();
+    }
+});
+</script>
+{% endblock %}

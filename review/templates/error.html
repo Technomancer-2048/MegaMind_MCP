@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+
+{% block title %}Error - MegaMind{% endblock %}
+
+{% block header_title %}Error{% endblock %}
+{% block header_subtitle %}Something went wrong{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-body" style="text-align: center; padding: 60px;">
+        <h2 style="color: #ef4444; margin-bottom: 20px;">⚠️ Error</h2>
+        
+        <div class="error" style="text-align: left; max-width: 600px; margin: 0 auto;">
+            {{ error }}
+        </div>
+        
+        <div class="mt-4">
+            <a href="/" class="btn">← Back to Dashboard</a>
+            <button onclick="window.location.reload()" class="btn btn-secondary">🔄 Retry</button>
+        </div>
+        
+        <div class="mt-4">
+            <p class="text-sm text-muted">
+                If this error persists, please check the server logs or contact your administrator.
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

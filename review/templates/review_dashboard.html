@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block title %}Review Dashboard - MegaMind{% endblock %}
+
+{% block content %}
+<div class="grid grid-3 mb-4">
+    <div class="card">
+        <div class="card-body">
+            <h3>📋 Total Sessions</h3>
+            <div style="font-size: 2rem; font-weight: bold; color: #667eea;">
+                {{ sessions|length }}
+            </div>
+            <p class="text-muted text-sm">Sessions with pending changes</p>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-body">
+            <h3>⚠️ Critical Changes</h3>
+            <div style="font-size: 2rem; font-weight: bold; color: #ef4444;">
+                {{ sessions|sum(attribute='critical_changes') }}
+            </div>
+            <p class="text-muted text-sm">High-impact modifications</p>
+        </div>
+    </div>
+    
+    <div class="card">
+        <div class="card-body">
+            <h3>📈 Total Changes</h3>
+            <div style="font-size: 2rem; font-weight: bold; color: #10b981;">
+                {{ sessions|sum(attribute='total_changes') }}
+            </div>
+            <p class="text-muted text-sm">Pending for review</p>
+        </div>
+    </div>
+</div>
+
+{% if sessions %}
+<div class="card">
+    <div class="card-header">
+        <h2>Sessions Requiring Review</h2>
+        <p class="text-muted">Click on a session to review its pending changes</p>
+    </div>
+    
+    <div class="card-body">
+        {% for session in sessions %}
+        <div class="card mb-3 {% if session.critical_changes > 0 %}priority-critical{% elif session.important_changes > 0 %}priority-important{% else %}priority-standard{% endif %}">
+            <div class="card-body">
+                <div class="grid grid-2">
+                    <div>
+                        <h4 style="margin-bottom: 10px;">
+                            Session: {{ session.session_id }}
+                            {% if session.critical_changes > 0 %}
+                                <span class="badge badge-critical">{{ session.critical_changes }} Critical</span>
+                            {% endif %}
+                            {% if session.important_changes > 0 %}
+                                <span class="badge badge-important">{{ session.important_changes }} Important</span>
+                            {% endif %}
+                        </h4>
+                        
+                        <p class="text-sm mb-2">
+                            <strong>Context:</strong> {{ session.user_context }}
+                            {% if session.project_context %}
+                                | {{ session.project_context }}
+                            {% endif %}
+                        </p>
+                        
+                        <p class="text-sm text-muted">
+                            <strong>Started:</strong> <span class="timestamp">{{ session.start_timestamp }}</span><br>
+                            <strong>Last Activity:</strong> <span class="timestamp">{{ session.last_activity }}</span>
+                        </p>
+                    </div>
+                    
+                    <div style="text-align: right;">
+                        <div class="mb-3">
+                            <div style="font-size: 1.5rem; font-weight: bold;">
+                                {{ session.total_changes }}
+                            </div>
+                            <div class="text-sm text-muted">pending changes</div>
+                        </div>
+                        
+                        <div class="mb-3">
+                            <div style="font-size: 1.2rem; font-weight: bold; color: #f59e0b;">
+                                {{ "%.2f"|format(session.avg_impact_score) }}
+                            </div>
+                            <div class="text-sm text-muted">avg impact score</div>
+                        </div>
+                        
+                        <a href="/session/{{ session.session_id }}" class="btn">
+                            Review Changes →
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="card">
+    <div class="card-body" style="text-align: center; padding: 60px;">
+        <h3 style="color: #10b981; margin-bottom: 10px;">✅ All Clear!</h3>
+        <p class="text-muted">No sessions with pending changes require review at this time.</p>
+        <p class="text-sm text-muted mt-2">
+            New AI contributions will appear here when they need manual approval.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+<div class="card mt-4">
+    <div class="card-header">
+        <h3>Review Guidelines</h3>
+    </div>
+    <div class="card-body">
+        <div class="grid grid-3">
+            <div>
+                <h4 style="color: #ef4444;">🔴 Critical Changes</h4>
+                <p class="text-sm">
+                    High-traffic chunks (&gt;50 accesses) or core system patterns. 
+                    Require careful review as they impact frequently-used knowledge.
+                </p>
+            </div>
+            
+            <div>
+                <h4 style="color: #f59e0b;">🟡 Important Changes</h4>
+                <p class="text-sm">
+                    Medium-traffic chunks (10-50 accesses) or cross-system updates. 
+                    Should be reviewed for accuracy and consistency.
+                </p>
+            </div>
+            
+            <div>
+                <h4 style="color: #10b981;">🟢 Standard Changes</h4>
+                <p class="text-sm">
+                    Low-traffic chunks (&lt;10 accesses) or documentation improvements. 
+                    Generally safe to approve with light review.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Format timestamps on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const timestampElements = document.querySelectorAll('.timestamp');
+    timestampElements.forEach(function(element) {
+        const timestamp = element.textContent;
+        element.textContent = formatTimestamp(timestamp);
+    });
+});
+
+// Auto-refresh every 30 seconds
+setInterval(function() {
+    window.location.reload();
+}, 30000);
+</script>
+{% endblock %}
