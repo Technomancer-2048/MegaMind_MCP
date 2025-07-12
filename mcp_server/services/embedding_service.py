@@ -10,6 +10,12 @@ from typing import List, Optional, Dict, Any
 from functools import lru_cache
 import json
 
+try:
+    from .embedding_cache import get_embedding_cache, EmbeddingCache
+    EMBEDDING_CACHE_AVAILABLE = True
+except ImportError:
+    EMBEDDING_CACHE_AVAILABLE = False
+
 # Conditional imports for graceful degradation
 try:
     from sentence_transformers import SentenceTransformer
@@ -47,9 +53,14 @@ class EmbeddingService:
         self.embedding_dimension = 384  # all-MiniLM-L6-v2 dimension
         self.cache_size = int(os.getenv('EMBEDDING_CACHE_SIZE', '1000'))
         
-        # Initialize cache for embeddings
-        self._embedding_cache = {}
-        self._cache_order = []
+        # Initialize enhanced embedding cache
+        if EMBEDDING_CACHE_AVAILABLE:
+            cache_ttl = int(os.getenv('EMBEDDING_CACHE_TTL', '3600'))
+            self._embedding_cache = get_embedding_cache(max_size=self.cache_size, ttl_seconds=cache_ttl)
+        else:
+            # Fallback to simple cache
+            self._embedding_cache = {}
+            self._cache_order = []
         
         # Try to initialize model
         self._initialize_model()
@@ -93,11 +104,17 @@ class EmbeddingService:
         # Preprocess text
         processed_text = self.preprocess_text(text, realm_context)
         
-        # Check cache first
-        content_hash = self._get_content_hash(processed_text)
-        cached_embedding = self._get_cached_embedding(content_hash)
-        if cached_embedding is not None:
-            return cached_embedding
+        # Check enhanced cache first
+        if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+            cached_embedding = self._embedding_cache.get_embedding(processed_text, realm_context)
+            if cached_embedding is not None:
+                return cached_embedding
+        else:
+            # Fallback to simple cache
+            content_hash = self._get_content_hash(processed_text)
+            cached_embedding = self._get_cached_embedding(content_hash)
+            if cached_embedding is not None:
+                return cached_embedding
         
         try:
             # Generate embedding
@@ -105,7 +122,11 @@ class EmbeddingService:
             embedding_list = embedding.tolist()
             
             # Cache the result
-            self._cache_embedding(content_hash, embedding_list)
+            if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+                self._embedding_cache.store_embedding(processed_text, embedding_list, realm_context)
+            else:
+                content_hash = self._get_content_hash(processed_text)
+                self._cache_embedding(content_hash, embedding_list)
             
             return embedding_list
             
@@ -148,8 +169,14 @@ class EmbeddingService:
                 continue
                 
             processed_text = self.preprocess_text(text, realm_context)
-            content_hash = self._get_content_hash(processed_text)
-            cached_embedding = self._get_cached_embedding(content_hash)
+            
+            # Check enhanced cache first
+            if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+                cached_embedding = self._embedding_cache.get_embedding(processed_text, realm_context)
+            else:
+                # Fallback to simple cache
+                content_hash = self._get_content_hash(processed_text)
+                cached_embedding = self._get_cached_embedding(content_hash)
             
             if cached_embedding is not None:
                 results.append(cached_embedding)
@@ -171,8 +198,13 @@ class EmbeddingService:
                     
                     # Cache the result
                     processed_text = texts_to_process[i]
-                    content_hash = self._get_content_hash(processed_text)
-                    self._cache_embedding(content_hash, embedding_list)
+                    realm_context = realm_contexts[original_index]
+                    
+                    if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+                        self._embedding_cache.store_embedding(processed_text, embedding_list, realm_context)
+                    else:
+                        content_hash = self._get_content_hash(processed_text)
+                        self._cache_embedding(content_hash, embedding_list)
                     
             except Exception as e:
                 logging.error(f"Failed to generate batch embeddings: {e}")
@@ -237,24 +269,45 @@ class EmbeddingService:
     
     def get_embedding_stats(self) -> Dict[str, Any]:
         """Get embedding service statistics"""
-        return {
+        base_stats = {
             'model_name': self.model_name,
             'device': self.device,
             'embedding_dimension': self.embedding_dimension,
-            'cache_size': len(self._embedding_cache),
-            'cache_limit': self.cache_size,
             'batch_size': self.batch_size,
             'available': self.is_available(),
             'dependencies': {
                 'sentence_transformers': SENTENCE_TRANSFORMERS_AVAILABLE,
-                'torch': TORCH_AVAILABLE
+                'torch': TORCH_AVAILABLE,
+                'embedding_cache': EMBEDDING_CACHE_AVAILABLE
             }
         }
+        
+        # Enhanced cache statistics
+        if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+            cache_stats = self._embedding_cache.get_statistics()
+            base_stats['cache'] = cache_stats
+        else:
+            # Fallback cache statistics
+            base_stats['cache'] = {
+                'cache_size': len(self._embedding_cache) if isinstance(self._embedding_cache, dict) else 0,
+                'cache_limit': self.cache_size,
+                'type': 'simple'
+            }
+        
+        return base_stats
     
     def clear_cache(self):
         """Clear the embedding cache"""
-        self._embedding_cache.clear()
-        self._cache_order.clear()
+        if EMBEDDING_CACHE_AVAILABLE and isinstance(self._embedding_cache, EmbeddingCache):
+            # Clear enhanced cache
+            from .embedding_cache import clear_embedding_cache
+            clear_embedding_cache()
+        else:
+            # Clear simple cache
+            if isinstance(self._embedding_cache, dict):
+                self._embedding_cache.clear()
+                self._cache_order.clear()
+        
         logging.info("Embedding cache cleared")
 
 
