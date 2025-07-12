@@ -14,12 +14,20 @@ from typing import List, Dict, Optional, Any, Union
 import mysql.connector
 from mysql.connector import pooling
 
-from realm_config import get_realm_config, get_realm_access_controller, RealmConfigurationManager, RealmAccessController
-from inheritance_resolver import InheritanceResolver
-from promotion_manager import PromotionManager, PromotionType, BusinessImpact, PermissionType
-from realm_security_validator import RealmSecurityValidator
-from services.embedding_service import get_embedding_service
-from services.vector_search import RealmAwareVectorSearchEngine
+try:
+    from .realm_config import get_realm_config, get_realm_access_controller, RealmConfigurationManager, RealmAccessController
+    from .inheritance_resolver import InheritanceResolver
+    from .promotion_manager import PromotionManager, PromotionType, BusinessImpact, PermissionType
+    from .realm_security_validator import RealmSecurityValidator
+    from .services.embedding_service import get_embedding_service
+    from .services.vector_search import RealmAwareVectorSearchEngine
+except ImportError:
+    from realm_config import get_realm_config, get_realm_access_controller, RealmConfigurationManager, RealmAccessController
+    from inheritance_resolver import InheritanceResolver
+    from promotion_manager import PromotionManager, PromotionType, BusinessImpact, PermissionType
+    from realm_security_validator import RealmSecurityValidator
+    from services.embedding_service import get_embedding_service
+    from services.vector_search import RealmAwareVectorSearchEngine
 
 logger = logging.getLogger(__name__)
 

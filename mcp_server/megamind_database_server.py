@@ -17,7 +17,10 @@ import mysql.connector
 from mysql.connector import pooling
 
 # Import realm-aware database implementation
-from realm_aware_database import RealmAwareMegaMindDatabase
+try:
+    from .realm_aware_database import RealmAwareMegaMindDatabase
+except ImportError:
+    from realm_aware_database import RealmAwareMegaMindDatabase
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

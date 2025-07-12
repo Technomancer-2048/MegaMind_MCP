@@ -1,9 +1,9 @@
 {
   "mcpServers": {
     "megamind-database": {
-      "command": "python",
-      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/megamind_database_server.py"],
-      "cwd": "/Data/MCP_Servers/MegaMind_MCP",
+      "command": "/Data/MCP_Servers/MegaMind_MCP/venv/bin/python",
+      "args": ["megamind_database_server.py"],
+      "cwd": "/Data/MCP_Servers/MegaMind_MCP/mcp_server",
       "env": {
         "MEGAMIND_DB_HOST": "10.255.250.21",
         "MEGAMIND_DB_PORT": "3309",
@@ -14,7 +14,8 @@
         "MEGAMIND_PROJECT_REALM": "PROJ_ECOMMERCE",
         "MEGAMIND_DEFAULT_TARGET": "PROJECT",
         "MEGAMIND_DEBUG": "false",
-        "MEGAMIND_LOG_LEVEL": "INFO"
+        "MEGAMIND_LOG_LEVEL": "INFO",
+        "HF_HOME": "/Data/MCP_Servers/MegaMind_MCP/models"
       }
     }
   }
