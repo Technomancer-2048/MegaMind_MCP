@@ -15,6 +15,7 @@ import mysql.connector
 from mysql.connector import pooling
 
 from realm_config import get_realm_config, get_realm_access_controller, RealmConfigurationManager, RealmAccessController
+from inheritance_resolver import InheritanceResolver
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,7 @@ class RealmAwareMegaMindDatabase:
         self.connection_pool = None
         self.realm_config = get_realm_config()
         self.realm_access = get_realm_access_controller()
+        self.inheritance_resolver = None  # Initialized after connection setup
         self._setup_connection_pool()
     
     def _setup_connection_pool(self):
@@ -44,6 +46,12 @@ class RealmAwareMegaMindDatabase:
                 'use_unicode': True
             }
             self.connection_pool = pooling.MySQLConnectionPool(**pool_config)
+            
+            # Initialize inheritance resolver with a test connection
+            test_connection = self.get_connection()
+            self.inheritance_resolver = InheritanceResolver(test_connection)
+            test_connection.close()
+            
             logger.info(f"Realm-aware database connection pool established for project: {self.realm_config.config.project_realm}")
         except Exception as e:
             logger.error(f"Failed to setup realm-aware database connection pool: {e}")
@@ -65,7 +73,7 @@ class RealmAwareMegaMindDatabase:
     # Dual-Realm Search Operations
     
     def search_chunks_dual_realm(self, query: str, limit: int = 10, search_type: str = "hybrid") -> List[Dict[str, Any]]:
-        """Enhanced dual-realm search with semantic capabilities"""
+        """Enhanced dual-realm search with inheritance-aware filtering"""
         connection = None
         try:
             connection = self.get_connection()
@@ -73,14 +81,25 @@ class RealmAwareMegaMindDatabase:
             
             # Get effective search realms
             search_realms = self.realm_config.get_search_realms()
-            realm_placeholders = ', '.join(['%s'] * len(search_realms))
             
             if search_type == "semantic":
-                return self._realm_semantic_search(cursor, query, limit, search_realms)
+                raw_results = self._realm_semantic_search(cursor, query, limit * 2, search_realms)  # Get more for filtering
             elif search_type == "keyword":
-                return self._realm_keyword_search(cursor, query, limit, search_realms)
+                raw_results = self._realm_keyword_search(cursor, query, limit * 2, search_realms)
             else:  # hybrid (default)
-                return self._realm_hybrid_search(cursor, query, limit, search_realms)
+                raw_results = self._realm_hybrid_search(cursor, query, limit * 2, search_realms)
+            
+            # Apply inheritance-aware filtering
+            if self.inheritance_resolver:
+                self.inheritance_resolver.db = connection  # Update resolver connection
+                filtered_results = self.inheritance_resolver.filter_chunks_by_inheritance(
+                    raw_results, self.realm_config.config.project_realm
+                )
+            else:
+                filtered_results = raw_results
+            
+            # Return limited results
+            return filtered_results[:limit]
                 
         except Exception as e:
             logger.error(f"Dual-realm search failed: {e}")
@@ -309,6 +328,182 @@ class RealmAwareMegaMindDatabase:
         cursor.execute(relationship_query, params)
         return cursor.fetchall()
     
+    # Cross-Realm Relationship Operations
+    
+    def get_cross_realm_relationships(self, chunk_id: str, max_depth: int = 2) -> List[Dict[str, Any]]:
+        """Get relationships that cross realm boundaries with inheritance awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get accessible realms for the current project
+            search_realms = self.realm_config.get_search_realms()
+            realm_placeholders = ', '.join(['%s'] * len(search_realms))
+            
+            # Find cross-realm relationships
+            cross_realm_query = f"""
+            SELECT cr.relationship_id, cr.chunk_id, cr.related_chunk_id,
+                   cr.relationship_type, cr.strength, cr.is_cross_realm,
+                   c1.realm_id as source_realm, c2.realm_id as target_realm,
+                   c1.content as source_content, c2.content as target_content,
+                   c1.source_document as source_doc, c2.source_document as target_doc,
+                   r1.realm_name as source_realm_name, r2.realm_name as target_realm_name
+            FROM megamind_chunk_relationships cr
+            JOIN megamind_chunks c1 ON cr.chunk_id = c1.chunk_id
+            JOIN megamind_chunks c2 ON cr.related_chunk_id = c2.chunk_id
+            JOIN megamind_realms r1 ON c1.realm_id = r1.realm_id
+            JOIN megamind_realms r2 ON c2.realm_id = r2.realm_id
+            WHERE (cr.chunk_id = %s OR cr.related_chunk_id = %s)
+              AND (c1.realm_id IN ({realm_placeholders}) AND c2.realm_id IN ({realm_placeholders}))
+              AND cr.is_cross_realm = TRUE
+            ORDER BY cr.strength DESC
+            LIMIT %s
+            """
+            
+            params = [chunk_id, chunk_id] + search_realms + search_realms + [max_depth * 10]
+            cursor.execute(cross_realm_query, params)
+            relationships = cursor.fetchall()
+            
+            # Filter relationships through inheritance resolver
+            if self.inheritance_resolver:
+                self.inheritance_resolver.db = connection
+                filtered_relationships = []
+                
+                for rel in relationships:
+                    # Check access to source chunk
+                    source_access = self.inheritance_resolver.resolve_chunk_access(
+                        rel['chunk_id'], self.realm_config.config.project_realm
+                    )
+                    # Check access to target chunk
+                    target_access = self.inheritance_resolver.resolve_chunk_access(
+                        rel['related_chunk_id'], self.realm_config.config.project_realm
+                    )
+                    
+                    if source_access.access_granted and target_access.access_granted:
+                        rel['source_access_type'] = source_access.access_type
+                        rel['target_access_type'] = target_access.access_type
+                        rel['relationship_weight'] = self._calculate_relationship_weight(rel, source_access, target_access)
+                        filtered_relationships.append(rel)
+                
+                # Sort by relationship weight
+                filtered_relationships.sort(key=lambda x: x['relationship_weight'], reverse=True)
+                return filtered_relationships
+            else:
+                return relationships
+                
+        except Exception as e:
+            logger.error(f"Failed to get cross-realm relationships for {chunk_id}: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    def _calculate_relationship_weight(self, relationship: Dict, source_access, target_access) -> float:
+        """Calculate weighted score for cross-realm relationships"""
+        base_strength = relationship['strength']
+        
+        # Apply access type modifiers
+        source_modifier = 1.2 if source_access.access_type == 'direct' else 0.8
+        target_modifier = 1.2 if target_access.access_type == 'direct' else 0.8
+        
+        # Apply realm priority modifiers
+        project_realm = self.realm_config.config.project_realm
+        source_realm_modifier = 1.1 if relationship['source_realm'] == project_realm else 1.0
+        target_realm_modifier = 1.1 if relationship['target_realm'] == project_realm else 1.0
+        
+        return base_strength * source_modifier * target_modifier * source_realm_modifier * target_realm_modifier
+    
+    def discover_cross_realm_patterns(self, realm_id: str = None) -> Dict[str, Any]:
+        """Discover patterns and insights from cross-realm relationships"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            realm_id = realm_id or self.realm_config.config.project_realm
+            
+            # Get cross-realm relationship statistics
+            stats_query = """
+            SELECT 
+                source_realm, target_realm, relationship_type,
+                COUNT(*) as relationship_count,
+                AVG(strength) as avg_strength,
+                MAX(strength) as max_strength,
+                MIN(strength) as min_strength
+            FROM cross_realm_relationships 
+            WHERE source_realm = %s OR target_realm = %s
+            GROUP BY source_realm, target_realm, relationship_type
+            ORDER BY relationship_count DESC, avg_strength DESC
+            """
+            
+            cursor.execute(stats_query, (realm_id, realm_id))
+            relationship_stats = cursor.fetchall()
+            
+            # Get most connected chunks across realms
+            connected_chunks_query = """
+            SELECT c.chunk_id, c.content, c.source_document, c.realm_id,
+                   r.realm_name, COUNT(cr.relationship_id) as connection_count,
+                   AVG(cr.strength) as avg_connection_strength
+            FROM megamind_chunks c
+            JOIN megamind_realms r ON c.realm_id = r.realm_id
+            JOIN megamind_chunk_relationships cr ON (c.chunk_id = cr.chunk_id OR c.chunk_id = cr.related_chunk_id)
+            WHERE cr.is_cross_realm = TRUE
+            GROUP BY c.chunk_id, c.content, c.source_document, c.realm_id, r.realm_name
+            HAVING connection_count >= 2
+            ORDER BY connection_count DESC, avg_connection_strength DESC
+            LIMIT 10
+            """
+            
+            cursor.execute(connected_chunks_query)
+            connected_chunks = cursor.fetchall()
+            
+            return {
+                'realm_id': realm_id,
+                'relationship_statistics': relationship_stats,
+                'highly_connected_chunks': connected_chunks,
+                'insights': self._generate_cross_realm_insights(relationship_stats, connected_chunks)
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to discover cross-realm patterns for {realm_id}: {e}")
+            return {'error': str(e)}
+        finally:
+            if connection:
+                connection.close()
+    
+    def _generate_cross_realm_insights(self, stats: List[Dict], connected_chunks: List[Dict]) -> List[str]:
+        """Generate insights from cross-realm relationship analysis"""
+        insights = []
+        
+        if stats:
+            # Find most common relationship types
+            type_counts = {}
+            for stat in stats:
+                rel_type = stat['relationship_type']
+                type_counts[rel_type] = type_counts.get(rel_type, 0) + stat['relationship_count']
+            
+            if type_counts:
+                most_common = max(type_counts, key=type_counts.get)
+                insights.append(f"Most common cross-realm relationship: {most_common} ({type_counts[most_common]} connections)")
+        
+        if connected_chunks:
+            # Find realm with most cross-connections
+            realm_connections = {}
+            for chunk in connected_chunks:
+                realm = chunk['realm_id']
+                realm_connections[realm] = realm_connections.get(realm, 0) + chunk['connection_count']
+            
+            if realm_connections:
+                most_connected_realm = max(realm_connections, key=realm_connections.get)
+                insights.append(f"Most interconnected realm: {most_connected_realm} ({realm_connections[most_connected_realm]} total connections)")
+        
+        if len(connected_chunks) >= 3:
+            avg_connections = sum(chunk['connection_count'] for chunk in connected_chunks) / len(connected_chunks)
+            insights.append(f"Average cross-realm connections per highly-connected chunk: {avg_connections:.1f}")
+        
+        return insights
+    
     # Session and Configuration Management
     
     def _update_session_metadata(self, cursor, session_id: str, realm_id: str):
@@ -372,6 +567,19 @@ class RealmAwareMegaMindDatabase:
             realm_info['realm_statistics'] = realm_stats
             realm_info['database_status'] = 'connected'
             realm_info['effective_search_realms'] = self.realm_access.get_effective_realms_for_search()
+            
+            # Add inheritance information
+            if self.inheritance_resolver:
+                self.inheritance_resolver.db = connection
+                realm_info['inheritance_paths'] = self.inheritance_resolver.get_inheritance_paths(
+                    self.realm_config.config.project_realm
+                )
+                realm_info['accessibility_matrix'] = self.inheritance_resolver.get_realm_accessibility_matrix(
+                    self.realm_config.config.project_realm
+                )
+                realm_info['inheritance_stats'] = self.inheritance_resolver.get_inheritance_stats(
+                    self.realm_config.config.project_realm
+                )
             
             return realm_info
             
