@@ -16,6 +16,8 @@ from mysql.connector import pooling
 
 from realm_config import get_realm_config, get_realm_access_controller, RealmConfigurationManager, RealmAccessController
 from inheritance_resolver import InheritanceResolver
+from promotion_manager import PromotionManager, PromotionType, BusinessImpact, PermissionType
+from realm_security_validator import RealmSecurityValidator
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +30,8 @@ class RealmAwareMegaMindDatabase:
         self.realm_config = get_realm_config()
         self.realm_access = get_realm_access_controller()
         self.inheritance_resolver = None  # Initialized after connection setup
+        self.promotion_manager = None  # Initialized after connection setup
+        self.security_validator = None  # Initialized after connection setup
         self._setup_connection_pool()
     
     def _setup_connection_pool(self):
@@ -50,6 +54,13 @@ class RealmAwareMegaMindDatabase:
             # Initialize inheritance resolver with a test connection
             test_connection = self.get_connection()
             self.inheritance_resolver = InheritanceResolver(test_connection)
+            
+            # Initialize promotion manager
+            self.promotion_manager = PromotionManager(test_connection)
+            
+            # Initialize security validator
+            self.security_validator = RealmSecurityValidator(test_connection)
+            
             test_connection.close()
             
             logger.info(f"Realm-aware database connection pool established for project: {self.realm_config.config.project_realm}")
@@ -639,6 +650,407 @@ class RealmAwareMegaMindDatabase:
         except Exception as e:
             logger.error(f"Realm hot contexts failed: {e}")
             return []
+        finally:
+            if connection:
+                connection.close()
+    
+    # ===================================================================
+    # Knowledge Promotion Operations (Phase 3)
+    # ===================================================================
+    
+    def create_promotion_request(self, source_chunk_id: str, target_realm_id: str,
+                               promotion_type: str, justification: str,
+                               business_impact: str, requested_by: str,
+                               session_id: str) -> str:
+        """Create a knowledge promotion request"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Validate promotion type and business impact
+            promo_type = PromotionType(promotion_type.lower())
+            biz_impact = BusinessImpact(business_impact.lower())
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            promotion_id = self.promotion_manager.create_promotion_request(
+                source_chunk_id=source_chunk_id,
+                target_realm_id=target_realm_id,
+                promotion_type=promo_type,
+                justification=justification,
+                business_impact=biz_impact,
+                requested_by=requested_by,
+                session_id=session_id
+            )
+            
+            logger.info(f"Promotion request created: {promotion_id}")
+            return promotion_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create promotion request: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def approve_promotion_request(self, promotion_id: str, reviewed_by: str,
+                                review_notes: str = None) -> bool:
+        """Approve a promotion request"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            result = self.promotion_manager.approve_promotion_request(
+                promotion_id=promotion_id,
+                reviewed_by=reviewed_by,
+                review_notes=review_notes
+            )
+            
+            logger.info(f"Promotion request approved: {promotion_id} by {reviewed_by}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to approve promotion request: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def reject_promotion_request(self, promotion_id: str, reviewed_by: str,
+                               review_notes: str) -> bool:
+        """Reject a promotion request"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            result = self.promotion_manager.reject_promotion_request(
+                promotion_id=promotion_id,
+                reviewed_by=reviewed_by,
+                review_notes=review_notes
+            )
+            
+            logger.info(f"Promotion request rejected: {promotion_id} by {reviewed_by}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to reject promotion request: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_promotion_requests(self, status: str = None, user_id: str = None,
+                             limit: int = 50) -> List[Dict[str, Any]]:
+        """Get promotion requests with optional filtering"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            status_enum = None
+            if status:
+                from promotion_manager import PromotionStatus
+                status_enum = PromotionStatus(status.lower())
+            
+            requests = self.promotion_manager.get_promotion_requests(
+                status=status_enum,
+                user_id=user_id,
+                limit=limit
+            )
+            
+            # Convert to dictionaries for JSON serialization
+            result = []
+            for req in requests:
+                req_dict = {
+                    'promotion_id': req.promotion_id,
+                    'source_chunk_id': req.source_chunk_id,
+                    'source_realm_id': req.source_realm_id,
+                    'target_realm_id': req.target_realm_id,
+                    'promotion_type': req.promotion_type.value,
+                    'status': req.status.value,
+                    'requested_by': req.requested_by,
+                    'requested_at': req.requested_at.isoformat(),
+                    'justification': req.justification,
+                    'business_impact': req.business_impact.value,
+                    'reviewed_by': req.reviewed_by,
+                    'reviewed_at': req.reviewed_at.isoformat() if req.reviewed_at else None,
+                    'review_notes': req.review_notes,
+                    'target_chunk_id': req.target_chunk_id
+                }
+                result.append(req_dict)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get promotion requests: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_promotion_impact(self, promotion_id: str) -> Optional[Dict[str, Any]]:
+        """Get impact analysis for a promotion request"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            impact = self.promotion_manager.get_promotion_impact(promotion_id)
+            
+            if not impact:
+                return None
+            
+            return {
+                'impact_id': impact.impact_id,
+                'promotion_id': impact.promotion_id,
+                'affected_chunks_count': impact.affected_chunks_count,
+                'affected_relationships_count': impact.affected_relationships_count,
+                'potential_conflicts_count': impact.potential_conflicts_count,
+                'content_quality_score': impact.content_quality_score,
+                'relevance_score': impact.relevance_score,
+                'uniqueness_score': impact.uniqueness_score,
+                'conflict_analysis': impact.conflict_analysis,
+                'dependency_analysis': impact.dependency_analysis,
+                'usage_impact': impact.usage_impact
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get promotion impact: {e}")
+            return None
+        finally:
+            if connection:
+                connection.close()
+    
+    # ===================================================================
+    # Role-Based Access Control Operations (Phase 3)
+    # ===================================================================
+    
+    def check_user_permission(self, user_id: str, realm_id: str, permission: str) -> bool:
+        """Check if user has specific permission in realm"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            perm_type = PermissionType(permission.lower())
+            
+            return self.promotion_manager.check_user_permission(
+                user_id=user_id,
+                realm_id=realm_id,
+                permission=perm_type
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to check user permission: {e}")
+            return False
+        finally:
+            if connection:
+                connection.close()
+    
+    def assign_user_role(self, user_id: str, role_id: str, realm_id: str,
+                        assigned_by: str, expires_at: str = None,
+                        assignment_reason: str = None) -> str:
+        """Assign role to user"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            expires_datetime = None
+            if expires_at:
+                from datetime import datetime
+                expires_datetime = datetime.fromisoformat(expires_at)
+            
+            assignment_id = self.promotion_manager.assign_user_role(
+                user_id=user_id,
+                role_id=role_id,
+                realm_id=realm_id,
+                assigned_by=assigned_by,
+                expires_at=expires_datetime,
+                assignment_reason=assignment_reason
+            )
+            
+            return assignment_id
+            
+        except Exception as e:
+            logger.error(f"Failed to assign user role: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def revoke_user_role(self, assignment_id: str, revoked_by: str,
+                        revocation_reason: str = None) -> bool:
+        """Revoke user role assignment"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            return self.promotion_manager.revoke_user_role(
+                assignment_id=assignment_id,
+                revoked_by=revoked_by,
+                revocation_reason=revocation_reason
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to revoke user role: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_user_roles(self, user_id: str, realm_id: str = None) -> List[Dict[str, Any]]:
+        """Get user's role assignments"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection
+            self.promotion_manager.db = connection
+            
+            roles = self.promotion_manager.get_user_roles(
+                user_id=user_id,
+                realm_id=realm_id
+            )
+            
+            # Convert to dictionaries for JSON serialization
+            result = []
+            for role in roles:
+                role_dict = {
+                    'assignment_id': role.assignment_id,
+                    'user_id': role.user_id,
+                    'role_id': role.role_id,
+                    'realm_id': role.realm_id,
+                    'assigned_by': role.assigned_by,
+                    'assigned_at': role.assigned_at.isoformat(),
+                    'expires_at': role.expires_at.isoformat() if role.expires_at else None,
+                    'is_active': role.is_active
+                }
+                result.append(role_dict)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Failed to get user roles: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    # ===================================================================
+    # Security Operations (Phase 3)
+    # ===================================================================
+    
+    def run_security_scan(self, realm_id: str = None) -> Dict[str, Any]:
+        """Run comprehensive security scan"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Use current realm if not specified
+            scan_realm = realm_id or self.realm_config.config.project_realm
+            
+            # Update security validator connection
+            self.security_validator.db = connection
+            
+            scan_result = self.security_validator.run_comprehensive_security_scan(scan_realm)
+            
+            logger.info(f"Security scan completed for realm {scan_realm}: "
+                       f"score={scan_result.get('overall_security_score', 0):.2f}")
+            
+            return scan_result
+            
+        except Exception as e:
+            logger.error(f"Failed to run security scan: {e}")
+            return {
+                'realm_id': realm_id or self.realm_config.config.project_realm,
+                'error': str(e),
+                'overall_security_score': 0.0,
+                'security_level': 'critical'
+            }
+        finally:
+            if connection:
+                connection.close()
+    
+    def validate_realm_isolation(self, realm_id: str = None) -> Dict[str, Any]:
+        """Validate realm isolation"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Use current realm if not specified
+            check_realm = realm_id or self.realm_config.config.project_realm
+            
+            # Update security validator connection
+            self.security_validator.db = connection
+            
+            isolation_check = self.security_validator.validate_realm_isolation(check_realm)
+            
+            return {
+                'realm_id': check_realm,
+                'is_isolated': isolation_check.is_isolated,
+                'security_score': isolation_check.security_score,
+                'violations': isolation_check.violations,
+                'affected_chunks': isolation_check.affected_chunks,
+                'cross_realm_leaks': isolation_check.cross_realm_leaks
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to validate realm isolation: {e}")
+            return {
+                'realm_id': check_realm,
+                'error': str(e),
+                'is_isolated': False,
+                'security_score': 0.0
+            }
+        finally:
+            if connection:
+                connection.close()
+    
+    def log_security_violation(self, violation_type: str, severity: str,
+                             user_id: str, source_ip: str, attempted_action: str,
+                             target_resource: str = None, realm_context: str = None) -> str:
+        """Log a security violation"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            
+            # Update promotion manager connection for audit logging
+            self.promotion_manager.db = connection
+            
+            violation_id = self.promotion_manager.log_security_violation(
+                violation_type=violation_type,
+                severity=severity,
+                user_id=user_id,
+                source_ip=source_ip,
+                attempted_action=attempted_action,
+                target_resource=target_resource,
+                realm_context=realm_context or self.realm_config.config.project_realm
+            )
+            
+            return violation_id
+            
+        except Exception as e:
+            logger.error(f"Failed to log security violation: {e}")
+            raise
         finally:
             if connection:
                 connection.close()
