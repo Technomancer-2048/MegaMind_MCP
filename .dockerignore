@@ -1,0 +1,105 @@
+# MegaMind Context Database - Docker Build Exclusions
+
+# Development and testing
+test_venv/
+.pytest_cache/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+.coverage
+htmlcov/
+.tox/
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+
+# Environment and configuration
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+*.local
+
+# Documentation and planning (exclude from container)
+planning/
+Guides/
+README.md
+*.md
+!CLAUDE.md
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+.wheel/
+
+# Logs and temporary files
+logs/
+*.log
+tmp/
+temp/
+.tmp/
+
+# Database data (should be mounted as volumes)
+data/
+cache/
+
+# Container and deployment files (don't need in container)
+docker-compose.yml
+docker-compose.*.yml
+Dockerfile
+.dockerignore
+
+# Scripts that run outside container
+scripts/deploy_*.sh
+scripts/run_*.sh
+scripts/start_*.sh
+
+# Analysis and monitoring tools (separate containers)
+analysis/
+dashboard/
+review/
+monitoring/
+
+# Large test files or sample data
+*.sql.backup
+*.dump
+sample_data/
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Security and secrets
+*.key
+*.pem
+*.p12
+*.cer
+*.crt
+secrets/
+private/
+
+# Local development tools
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
