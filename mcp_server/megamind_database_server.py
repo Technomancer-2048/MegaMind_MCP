@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 MegaMind Context Database MCP Server
-Full MCP protocol implementation
+Realm-aware MCP protocol implementation with semantic search
 """
 
 import json
@@ -15,6 +15,9 @@ from typing import List, Dict, Optional, Any, Union
 
 import mysql.connector
 from mysql.connector import pooling
+
+# Import realm-aware database implementation
+from realm_aware_database import RealmAwareMegaMindDatabase
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -721,13 +724,13 @@ class MCPServer:
                         "tools": [
                             {
                                 "name": "mcp__context_db__search_chunks",
-                                "description": "Search context chunks with optional model optimization",
+                                "description": "Enhanced dual-realm search with hybrid semantic capabilities",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "query": {"type": "string", "description": "Search query"},
                                         "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "model_type": {"type": "string", "default": "sonnet", "description": "Model optimization"}
+                                        "search_type": {"type": "string", "default": "hybrid", "description": "Search type: semantic, keyword, or hybrid"}
                                     },
                                     "required": ["query"]
                                 }
@@ -806,14 +809,15 @@ class MCPServer:
                             },
                             {
                                 "name": "mcp__context_db__create_chunk",
-                                "description": "Buffer new knowledge creation",
+                                "description": "Buffer new knowledge creation with realm targeting and embedding generation",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "content": {"type": "string", "description": "Chunk content"},
                                         "source_document": {"type": "string", "description": "Source document"},
                                         "section_path": {"type": "string", "description": "Section path"},
-                                        "session_id": {"type": "string", "description": "Session identifier"}
+                                        "session_id": {"type": "string", "description": "Session identifier"},
+                                        "target_realm": {"type": "string", "description": "Target realm (optional, defaults to PROJECT)"}
                                     },
                                     "required": ["content", "source_document", "section_path", "session_id"]
                                 }
@@ -854,6 +858,44 @@ class MCPServer:
                                     },
                                     "required": ["session_id", "approved_changes"]
                                 }
+                            },
+                            {
+                                "name": "mcp__context_db__search_chunks_semantic",
+                                "description": "Pure semantic search across Global + Project realms",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "query": {"type": "string", "description": "Search query"},
+                                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
+                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"}
+                                    },
+                                    "required": ["query"]
+                                }
+                            },
+                            {
+                                "name": "mcp__context_db__search_chunks_by_similarity",
+                                "description": "Find chunks similar to a reference chunk using embeddings",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "reference_chunk_id": {"type": "string", "description": "Reference chunk identifier"},
+                                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
+                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"}
+                                    },
+                                    "required": ["reference_chunk_id"]
+                                }
+                            },
+                            {
+                                "name": "mcp__context_db__batch_generate_embeddings",
+                                "description": "Generate embeddings for existing chunks in batch",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs (optional)"},
+                                        "realm_id": {"type": "string", "description": "Realm ID to process (optional)"}
+                                    },
+                                    "required": []
+                                }
                             }
                         ]
                     }
@@ -864,9 +906,10 @@ class MCPServer:
                 tool_args = params.get('arguments', {})
                 
                 if tool_name == 'mcp__context_db__search_chunks':
-                    results = self.db_manager.search_chunks(
+                    results = self.db_manager.search_chunks_dual_realm(
                         query=tool_args.get('query', ''),
-                        limit=tool_args.get('limit', 10)
+                        limit=tool_args.get('limit', 10),
+                        search_type=tool_args.get('search_type', 'hybrid')
                     )
                     return {
                         "jsonrpc": "2.0",
@@ -882,7 +925,7 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__get_chunk':
-                    result = self.db_manager.get_chunk(
+                    result = self.db_manager.get_chunk_dual_realm(
                         chunk_id=tool_args.get('chunk_id', ''),
                         include_relationships=tool_args.get('include_relationships', True)
                     )
@@ -990,11 +1033,12 @@ class MCPServer:
                     }
                 
                 elif tool_name == 'mcp__context_db__create_chunk':
-                    change_id = self.db_manager.create_chunk(
+                    change_id = self.db_manager.create_chunk_with_target(
                         content=tool_args.get('content', ''),
                         source_document=tool_args.get('source_document', ''),
                         section_path=tool_args.get('section_path', ''),
-                        session_id=tool_args.get('session_id', '')
+                        session_id=tool_args.get('session_id', ''),
+                        target_realm=tool_args.get('target_realm')
                     )
                     return {
                         "jsonrpc": "2.0",
@@ -1050,6 +1094,62 @@ class MCPServer:
                     result = self.db_manager.commit_session_changes(
                         session_id=tool_args.get('session_id', ''),
                         approved_changes=tool_args.get('approved_changes', [])
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(result, indent=2)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__context_db__search_chunks_semantic':
+                    results = self.db_manager.search_chunks_semantic(
+                        query=tool_args.get('query', ''),
+                        limit=tool_args.get('limit', 10),
+                        threshold=tool_args.get('threshold', None)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(results, indent=2)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__context_db__search_chunks_by_similarity':
+                    results = self.db_manager.search_chunks_by_similarity(
+                        reference_chunk_id=tool_args.get('reference_chunk_id', ''),
+                        limit=tool_args.get('limit', 10),
+                        threshold=tool_args.get('threshold', None)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(results, indent=2)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__context_db__batch_generate_embeddings':
+                    result = self.db_manager.batch_generate_embeddings(
+                        chunk_ids=tool_args.get('chunk_ids'),
+                        realm_id=tool_args.get('realm_id')
                     )
                     return {
                         "jsonrpc": "2.0",
@@ -1140,11 +1240,11 @@ async def main():
             logger.error("Database password not configured. Set MEGAMIND_DB_PASSWORD environment variable.")
             return 1
         
-        # Initialize database
-        db_manager = MegaMindDatabase(db_config)
+        # Initialize realm-aware database
+        db_manager = RealmAwareMegaMindDatabase(db_config)
         
         # Test database connection
-        test_results = db_manager.search_chunks("test", limit=1)
+        test_results = db_manager.search_chunks_dual_realm("test", limit=1)
         logger.info(f"Database connection successful. Found {len(test_results)} test results.")
         
         # Start MCP server
