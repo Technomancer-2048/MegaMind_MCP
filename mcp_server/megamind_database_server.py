@@ -144,6 +144,22 @@ class MegaMindDatabase:
             if not chunk:
                 return None
             
+            # Auto-track access when chunk is retrieved
+            try:
+                track_query = """
+                UPDATE megamind_chunks
+                SET access_count = access_count + 1,
+                    last_accessed = NOW()
+                WHERE chunk_id = %s
+                """
+                cursor.execute(track_query, (chunk_id,))
+                connection.commit()
+                
+                # Update the chunk data with new access count
+                chunk['access_count'] += 1
+            except Exception as e:
+                logger.warning(f"Failed to track access for {chunk_id}: {e}")
+            
             # Convert datetime to string
             if chunk['last_accessed']:
                 chunk['last_accessed'] = chunk['last_accessed'].isoformat()
@@ -299,7 +315,7 @@ class MegaMindDatabase:
                 SELECT chunk_id, content, source_document, section_path, 
                        chunk_type, access_count, last_accessed
                 FROM megamind_chunks
-                WHERE access_count >= 10
+                WHERE access_count >= 2
                 ORDER BY access_count DESC, token_count ASC
                 LIMIT %s
                 """
@@ -308,7 +324,7 @@ class MegaMindDatabase:
                 SELECT chunk_id, content, source_document, section_path,
                        chunk_type, access_count, last_accessed
                 FROM megamind_chunks
-                WHERE access_count >= 3
+                WHERE access_count >= 1
                 ORDER BY last_accessed DESC, access_count DESC
                 LIMIT %s
                 """
@@ -558,11 +574,11 @@ class MegaMindDatabase:
                         stats["chunks_modified"] += 1
                 
                 elif change['change_type'] == 'create':
-                    # Create new chunk
+                    # Create new chunk with access_count = 1 (creation counts as first access)
                     insert_query = """
                     INSERT INTO megamind_chunks 
-                    (chunk_id, content, source_document, section_path, chunk_type, line_count, token_count)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    (chunk_id, content, source_document, section_path, chunk_type, line_count, token_count, access_count)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, 1)
                     """
                     cursor.execute(insert_query, (
                         change_data['chunk_id'], change_data['content'],

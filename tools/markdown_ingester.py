@@ -208,7 +208,7 @@ class MarkdownIngester:
             chunk_data = [
                 (chunk.chunk_id, chunk.content, chunk.source_document, 
                  chunk.section_path, chunk.chunk_type, chunk.line_count,
-                 chunk.token_count, now, now, 0)
+                 chunk.token_count, now, now, 1)  # Creation counts as first access
                 for chunk in chunks
             ]
             
