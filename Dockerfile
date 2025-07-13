@@ -57,7 +57,7 @@ COPY scripts/validate_realm_semantic_search.py ./scripts/
 COPY tests/benchmark_realm_semantic_search.py ./tests/
 
 # Copy configuration files
-COPY mcp.json ./
+COPY .mcp.json ./
 COPY CLAUDE.md ./
 
 # Make scripts executable

@@ -417,6 +417,21 @@ recent_activity = [r for r in requests if r['created_date'] > '2025-07-01']
 
 **IMPORTANT**: All coding for this system is designed for **fresh database deployment from the Docker container**. Modifying the running database is not the goal - all schema changes and fixes should be applied to the initialization scripts (`init_schema.sql`) for clean container deployments.
 
+**CRITICAL - Container Rebuild Requirement**: 
+⚠️ **If any Python code changes are made to the MCP server files (especially `megamind_database_server.py`, `realm_aware_database.py`, or other `mcp_server/` files), the HTTP container MUST be rebuilt before testing**, as Docker containers use cached file layers. Simply restarting the container will NOT pick up code changes.
+
+**Required rebuild steps after code changes**:
+```bash
+# Stop and remove the container
+docker compose down megamind-mcp-server-http
+
+# Rebuild with updated code
+docker compose build megamind-mcp-server-http
+
+# Start the rebuilt container
+docker compose up megamind-mcp-server-http -d
+```
+
 When implementing this system:
 1. **Database First**: All operations through database, no file system dependencies
 2. **MCP Interface**: All AI interactions through MCP function calls
