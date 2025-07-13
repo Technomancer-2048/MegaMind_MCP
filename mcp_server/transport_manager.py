@@ -107,22 +107,29 @@ class TransportManager:
     async def start_http_server(self):
         """Start HTTP server"""
         try:
-            logger.info("Starting HTTP transport...")
+            logger.info("=== Starting HTTP Transport ===")
+            logger.info(f"Initializing HTTP server on {self.config.get('host', 'localhost')}:{self.config.get('port', 8080)}")
             
+            logger.info("Creating RealmAwareHTTPMCPServer instance...")
             self.http_server = RealmAwareHTTPMCPServer(
                 realm_factory=self.realm_factory,
                 config=self.config
             )
+            logger.info("RealmAwareHTTPMCPServer instance created successfully")
             
             # Start server in background task
+            logger.info("Starting HTTP server task...")
             server_task = asyncio.create_task(self.http_server.run())
             
-            logger.info(f"HTTP MCP Server started on {self.config.get('host', 'localhost')}:{self.config.get('port', 8080)}")
+            logger.info(f"✓ HTTP MCP Server started successfully on {self.config.get('host', 'localhost')}:{self.config.get('port', 8080)}")
             
             return server_task
             
         except Exception as e:
-            logger.error(f"Failed to start HTTP server: {e}")
+            logger.error(f"✗ Failed to start HTTP server: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     async def start_stdio_server(self):

@@ -1,22 +1,24 @@
 # MegaMind Context Database System
 
-An intelligent, production-ready MCP server designed to eliminate AI context exhaustion through semantic chunking and precise database retrieval.
+An intelligent, production-ready MCP server designed to eliminate AI context exhaustion through semantic chunking, precise database retrieval, and knowledge governance workflows.
 
 ## 🎯 Overview
 
 The MegaMind Context Database System solves the critical problem of AI context waste in development workflows. Current markdown-based systems consume 14,600+ tokens for simple tasks, making high-capability models like Opus 4 practically unusable. This system achieves **70-80% context reduction** through intelligent semantic chunking and database-driven retrieval.
 
-**✅ Status: PRODUCTION READY** - Complete semantic search system with realm-aware architecture and performance optimization.
+**✅ Status: PRODUCTION READY** - Complete semantic search system with realm-aware architecture, knowledge promotion mechanism, and performance optimization.
 
 ## 🚀 Key Features
 
 - **🧠 Semantic Search**: Advanced embedding-based retrieval with sentence-transformers
 - **🌐 Realm-Aware Architecture**: Dual-realm access (Global + Project) with intelligent prioritization
+- **🔄 Knowledge Promotion System**: Governed cross-realm knowledge transfer with impact analysis
 - **⚡ Performance Optimization**: LRU caching, async processing, and database indexing
 - **🔄 Bidirectional Flow**: AI contributions enhance the knowledge base through review cycles
 - **📊 Real-time Analytics**: Comprehensive monitoring and performance metrics
 - **🛡️ Production Security**: JWT authentication, resource limits, and health checks
 - **🐳 Containerized Deployment**: Docker orchestration with MySQL, Redis, and MCP server
+- **📈 HTTP Transport**: Dynamic realm management with JSON-RPC protocol support
 
 ## 🏗️ Architecture
 
@@ -154,30 +156,37 @@ services:
       SEMANTIC_SEARCH_THRESHOLD: 0.7
 ```
 
-## 🔧 MCP Functions
+## 🔧 MCP Functions - 20 Total Functions
 
-### Core Retrieval Functions
-- `mcp__context_db__search_chunks(query, limit=10, model_type="sonnet")` - Advanced semantic search with realm-aware scoring
-- `mcp__context_db__get_chunk(chunk_id, include_relationships=true)` - Retrieve specific chunk with metadata and embeddings
-- `mcp__context_db__get_related_chunks(chunk_id, max_depth=2)` - Traverse relationship graph with semantic similarity
+### 🔍 Search & Retrieval (5 Functions)
+- `mcp__megamind__search_chunks(query, limit=10, search_type="hybrid")` - Advanced semantic search with realm-aware scoring
+- `mcp__megamind__get_chunk(chunk_id, include_relationships=true)` - Retrieve specific chunk with metadata and embeddings
+- `mcp__megamind__get_related_chunks(chunk_id, max_depth=2)` - Traverse relationship graph with semantic similarity
+- `mcp__megamind__search_chunks_semantic(query, limit=10, threshold=0.7)` - Pure semantic search across realms
+- `mcp__megamind__search_chunks_by_similarity(reference_chunk_id, limit=10)` - Find similar chunks using embeddings
 
-### Knowledge Management Functions (Phase 3)
-- `mcp__megamind_db__update_chunk(chunk_id, new_content, session_id)` - Buffer chunk modifications with impact scoring
-- `mcp__megamind_db__create_chunk(content, source_document, section_path, session_id)` - Create new chunks for review
-- `mcp__megamind_db__add_relationship(source_id, target_id, relationship_type, session_id)` - Buffer relationship additions
-- `mcp__megamind_db__get_pending_changes(session_id)` - Retrieve session changes sorted by impact
-- `mcp__megamind_db__commit_session_changes(session_id, approved_changes)` - Apply approved changes transactionally
-- `mcp__megamind_db__rollback_session_changes(session_id)` - Discard all pending session changes
-- `mcp__megamind_db__get_change_summary(session_id)` - Generate impact analysis and priority breakdown
+### 📝 Content Management (4 Functions)
+- `mcp__megamind__create_chunk(content, source_document, section_path, session_id)` - Create new chunks with realm targeting
+- `mcp__megamind__update_chunk(chunk_id, new_content, session_id)` - Buffer chunk modifications for review
+- `mcp__megamind__add_relationship(chunk_id_1, chunk_id_2, relationship_type, session_id)` - Create cross-references
+- `mcp__megamind__batch_generate_embeddings(chunk_ids=[], realm_id="")` - Generate embeddings in batch
 
-### Session Management Functions
-- `mcp__megamind_db__get_session_primer(last_session_data)` - Generate context for session continuity
-- `mcp__megamind_db__track_access(chunk_id, query_context)` - Update access statistics
+### 🚀 Knowledge Promotion (6 Functions) **NEW**
+- `mcp__megamind__create_promotion_request(chunk_id, target_realm, justification, session_id)` - Request knowledge promotion
+- `mcp__megamind__get_promotion_requests(filter_status="", filter_realm="", limit=20)` - List promotion requests
+- `mcp__megamind__approve_promotion_request(promotion_id, approval_reason, session_id)` - Approve promotions
+- `mcp__megamind__reject_promotion_request(promotion_id, rejection_reason, session_id)` - Reject promotions
+- `mcp__megamind__get_promotion_impact(promotion_id)` - Analyze promotion impact on target realm
+- `mcp__megamind__get_promotion_queue_summary(filter_realm="")` - Get promotion queue statistics
 
-### Intelligence Layer Functions (Phase 2)
-- `mcp__megamind_db__search_by_embedding(query, limit, similarity_threshold)` - Semantic embedding search
-- `mcp__megamind_db__search_by_tags(tag_type, tag_value, limit)` - Tag-based chunk retrieval
-- `mcp__megamind_db__get_session_primer(last_session_data, project_context)` - Enhanced session context
+### 🔄 Session Management (3 Functions)
+- `mcp__megamind__get_session_primer(last_session_data="")` - Generate context for session continuity
+- `mcp__megamind__get_pending_changes(session_id)` - Get pending changes with smart highlighting
+- `mcp__megamind__commit_session_changes(session_id, approved_changes)` - Apply approved changes
+
+### 📊 Analytics & Optimization (2 Functions)
+- `mcp__megamind__track_access(chunk_id, query_context="")` - Update access analytics for optimization
+- `mcp__megamind__get_hot_contexts(model_type="sonnet", limit=20)` - Get frequently accessed chunks
 
 ## 📋 Development Phases
 
@@ -210,6 +219,14 @@ services:
 - ✅ Production deployment validation and benchmarking framework
 - ✅ Container orchestration with health checks and resource limits
 
+### Phase 5: Knowledge Promotion System ✅ COMPLETED
+- ✅ Cross-realm knowledge transfer mechanism with governance workflow
+- ✅ Promotion request creation, approval/rejection with audit trail
+- ✅ Impact analysis for promotion decisions with conflict detection
+- ✅ Queue management and monitoring for promotion workflow
+- ✅ Database schema extension with 3 promotion system tables
+- ✅ HTTP transport integration for dynamic realm management
+
 ## 📊 Performance Targets
 
 - **✅ Context Reduction**: 70-80% reduction in token consumption
@@ -218,6 +235,7 @@ services:
 - **✅ Container Size**: 6.45GB production image with all ML dependencies
 - **✅ Concurrent Users**: Support 50+ simultaneous sessions
 - **✅ Availability**: 99.9% uptime with health checks and auto-restart
+- **✅ Function Completeness**: 20 total MCP functions (100% of planned features)
 
 ### Production Metrics
 - **Database**: MySQL 8.0 with 2GB memory limit and optimized indexes
@@ -298,13 +316,15 @@ For questions, issues, or contributions:
 
 ## 🎯 Current Status
 
-**✅ PRODUCTION READY - All 4 Phases Complete**
+**✅ PRODUCTION READY - All 5 Phases Complete**
 
-- **🚀 Deployed**: Complete containerized stack running on `megamind-context-db:4.0.0`
+- **🚀 Deployed**: Complete containerized stack with 20 MCP functions operational
 - **🔍 Semantic Search**: Advanced embedding-based retrieval with realm awareness
+- **🚀 Knowledge Promotion**: Governed cross-realm knowledge transfer system
 - **⚡ Performance**: Optimized with caching, async processing, and database indexes
-- **🐳 Container**: 6.45GB production image with health checks and security
+- **🐳 Container**: Production image with health checks and security
 - **📊 Monitoring**: Real-time metrics and comprehensive validation framework
+- **📈 HTTP Transport**: Dynamic realm management with JSON-RPC protocol
 
 ### Quick Status Check
 ```bash
@@ -318,4 +338,22 @@ curl http://10.255.250.21:8002/health
 docker logs megamind-mcp-server-prod --tail 20
 ```
 
-**Ready for production use with semantic search capabilities!** 🎉
+**Ready for production use with complete 20-function MCP interface including Knowledge Promotion System!** 🎉
+
+## 🆕 Latest Updates (2025-07-13)
+
+### Knowledge Promotion System - GitHub Issue #11 ✅ COMPLETED
+- **6 New MCP Functions**: Complete promotion workflow from request to approval
+- **Database Schema**: 3 new promotion system tables with audit trail
+- **Impact Analysis**: Automated conflict detection and similarity assessment
+- **Governance Workflow**: Approval/rejection with justification requirements
+- **Queue Management**: Real-time monitoring and statistics
+- **Cross-Realm Transfer**: Seamless PROJECT ↔ GLOBAL knowledge promotion
+
+### System Expansion
+- **Total Functions**: Expanded from 14 → 20 MCP functions (43% increase)
+- **Production Deployment**: All functions tested and verified in container
+- **HTTP Transport**: Enhanced with promotion system integration
+- **Documentation**: Complete usage guides and best practices
+
+**All systems operational and ready for advanced knowledge governance workflows!** 🚀

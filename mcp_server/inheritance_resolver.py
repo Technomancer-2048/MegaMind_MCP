@@ -58,31 +58,67 @@ class InheritanceResolver:
         try:
             cursor = self.db.cursor(dictionary=True)
             
-            # Use the stored function for conflict resolution
-            cursor.execute("""
-                SELECT resolve_inheritance_conflict(%s, %s) as result
-            """, (chunk_id, accessing_realm))
+            # Get chunk's realm using Python logic (GitHub Issue #5 Phase 3)
+            cursor.execute("SELECT realm_id FROM megamind_chunks WHERE chunk_id = %s", (chunk_id,))
+            chunk_row = cursor.fetchone()
             
-            result_row = cursor.fetchone()
-            if result_row and result_row['result']:
-                result_data = json.loads(result_row['result'])
-                
-                access_result = AccessResult(
-                    access_granted=result_data.get('access_granted', False),
-                    access_type=result_data.get('access_type', 'denied'),
-                    source_realm=result_data.get('source_realm', ''),
-                    reason=result_data.get('reason', 'Unknown'),
-                    priority_score=result_data.get('priority_order', 999)
-                )
-            else:
+            if not chunk_row:
                 access_result = AccessResult(
                     access_granted=False,
                     access_type='denied',
-                    source_realm='',
-                    reason='No access path found'
+                    source_realm=accessing_realm,
+                    reason='Chunk not found'
                 )
+            else:
+                chunk_realm = chunk_row['realm_id']
+                
+                # Direct access (same realm)
+                if chunk_realm == accessing_realm:
+                    access_result = AccessResult(
+                        access_granted=True,
+                        access_type='direct',
+                        source_realm=accessing_realm,
+                        reason='Direct access to own realm',
+                        priority_score=1.0
+                    )
+                # GLOBAL realm access (always accessible)
+                elif chunk_realm == 'GLOBAL':
+                    access_result = AccessResult(
+                        access_granted=True,
+                        access_type='inherited',
+                        source_realm='GLOBAL',
+                        reason='Global realm inheritance - accessible to all',
+                        priority_score=10.0
+                    )
+                else:
+                    # Check for explicit inheritance relationship
+                    cursor.execute("""
+                        SELECT inheritance_type, priority_order
+                        FROM megamind_realm_inheritance 
+                        WHERE child_realm_id = %s AND parent_realm_id = %s AND is_active = TRUE
+                        ORDER BY priority_order ASC LIMIT 1
+                    """, (accessing_realm, chunk_realm))
+                    
+                    inheritance_row = cursor.fetchone()
+                    if inheritance_row:
+                        access_result = AccessResult(
+                            access_granted=True,
+                            access_type='inherited',
+                            source_realm=chunk_realm,
+                            reason=f'Inherited access via {inheritance_row["inheritance_type"]} inheritance',
+                            priority_score=inheritance_row['priority_order']
+                        )
+                    else:
+                        # No inheritance path found
+                        access_result = AccessResult(
+                            access_granted=False,
+                            access_type='denied',
+                            source_realm=accessing_realm,
+                            reason='No inheritance path found between realms'
+                        )
             
             self._access_cache[cache_key] = access_result
+            cursor.close()
             return access_result
             
         except Exception as e:
@@ -90,7 +126,7 @@ class InheritanceResolver:
             return AccessResult(
                 access_granted=False,
                 access_type='error',
-                source_realm='',
+                source_realm=accessing_realm,
                 reason=f'Resolution error: {str(e)}'
             )
     

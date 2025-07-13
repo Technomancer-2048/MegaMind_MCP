@@ -11,10 +11,37 @@ import sys
 import asyncio
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import List, Dict, Optional, Any, Union
 
 import mysql.connector
 from mysql.connector import pooling
+
+class MegaMindJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder that handles MySQL data types"""
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(obj)
+        elif isinstance(obj, datetime):
+            return obj.isoformat()
+        elif hasattr(obj, 'isoformat'):  # Other datetime-like objects
+            return obj.isoformat()
+        return super().default(obj)
+
+def clean_decimal_objects(data):
+    """Recursively clean Decimal objects from nested data structures"""
+    from decimal import Decimal
+    
+    if isinstance(data, dict):
+        return {key: clean_decimal_objects(value) for key, value in data.items()}
+    elif isinstance(data, list):
+        return [clean_decimal_objects(item) for item in data]
+    elif isinstance(data, Decimal):
+        return float(data)
+    elif hasattr(data, 'isoformat'):  # datetime objects
+        return data.isoformat()
+    else:
+        return data
 
 # Import realm-aware database implementation
 try:
@@ -40,11 +67,11 @@ class MegaMindDatabase:
             pool_config = {
                 'pool_name': 'megamind_mcp_pool',
                 'pool_size': int(self.config.get('pool_size', 10)),
-                'host': self.config['host'],
-                'port': int(self.config['port']),
-                'database': self.config['database'],
-                'user': self.config['user'],
-                'password': self.config['password'],
+                'host': self.config.get('db_host', self.config.get('host')),
+                'port': int(self.config.get('db_port', self.config.get('port'))),
+                'database': self.config.get('db_database', self.config.get('database')),
+                'user': self.config.get('db_user', self.config.get('user')),
+                'password': self.config.get('db_password', self.config.get('password')),
                 'autocommit': False,
                 'charset': 'utf8mb4',
                 'use_unicode': True
@@ -783,7 +810,7 @@ class MCPServer:
                     "result": {
                         "tools": [
                             {
-                                "name": "mcp__context_db__search_chunks",
+                                "name": "mcp__megamind__search_chunks",
                                 "description": "Enhanced dual-realm search with hybrid semantic capabilities",
                                 "inputSchema": {
                                     "type": "object",
@@ -797,7 +824,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__get_chunk",
+                                "name": "mcp__megamind__get_chunk",
                                 "description": "Get specific chunk by ID with relationships",
                                 "inputSchema": {
                                     "type": "object",
@@ -810,7 +837,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__get_related_chunks",
+                                "name": "mcp__megamind__get_related_chunks",
                                 "description": "Get chunks related to specified chunk",
                                 "inputSchema": {
                                     "type": "object",
@@ -823,7 +850,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__get_session_primer",
+                                "name": "mcp__megamind__get_session_primer",
                                 "description": "Generate lightweight context for session continuity",
                                 "inputSchema": {
                                     "type": "object",
@@ -834,7 +861,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__track_access",
+                                "name": "mcp__megamind__track_access",
                                 "description": "Update access analytics for optimization",
                                 "inputSchema": {
                                     "type": "object",
@@ -846,7 +873,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__get_hot_contexts",
+                                "name": "mcp__megamind__get_hot_contexts",
                                 "description": "Get frequently accessed chunks prioritized by usage patterns",
                                 "inputSchema": {
                                     "type": "object",
@@ -858,7 +885,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__update_chunk",
+                                "name": "mcp__megamind__update_chunk",
                                 "description": "Buffer chunk modifications for review",
                                 "inputSchema": {
                                     "type": "object",
@@ -871,7 +898,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__create_chunk",
+                                "name": "mcp__megamind__create_chunk",
                                 "description": "Buffer new knowledge creation with realm targeting and embedding generation",
                                 "inputSchema": {
                                     "type": "object",
@@ -886,7 +913,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__add_relationship",
+                                "name": "mcp__megamind__add_relationship",
                                 "description": "Create cross-references between chunks",
                                 "inputSchema": {
                                     "type": "object",
@@ -900,7 +927,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__get_pending_changes",
+                                "name": "mcp__megamind__get_pending_changes",
                                 "description": "Get pending changes with smart highlighting",
                                 "inputSchema": {
                                     "type": "object",
@@ -911,7 +938,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__commit_session_changes",
+                                "name": "mcp__megamind__commit_session_changes",
                                 "description": "Commit approved changes and track contributions",
                                 "inputSchema": {
                                     "type": "object",
@@ -923,7 +950,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__search_chunks_semantic",
+                                "name": "mcp__megamind__search_chunks_semantic",
                                 "description": "Pure semantic search across Global + Project realms",
                                 "inputSchema": {
                                     "type": "object",
@@ -937,7 +964,7 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__search_chunks_by_similarity",
+                                "name": "mcp__megamind__search_chunks_by_similarity",
                                 "description": "Find chunks similar to a reference chunk using embeddings",
                                 "inputSchema": {
                                     "type": "object",
@@ -951,13 +978,91 @@ class MCPServer:
                                 }
                             },
                             {
-                                "name": "mcp__context_db__batch_generate_embeddings",
+                                "name": "mcp__megamind__batch_generate_embeddings",
                                 "description": "Generate embeddings for existing chunks in batch",
                                 "inputSchema": {
                                     "type": "object",
                                     "properties": {
                                         "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs (optional)"},
                                         "realm_id": {"type": "string", "description": "Realm ID to process (optional)"}
+                                    },
+                                    "required": []
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__create_promotion_request",
+                                "description": "Create a promotion request to move knowledge between realms",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "source_chunk_id": {"type": "string", "description": "Source chunk identifier"},
+                                        "target_realm_id": {"type": "string", "description": "Target realm identifier"},
+                                        "promotion_type": {"type": "string", "enum": ["copy", "move", "reference"], "default": "copy", "description": "Type of promotion"},
+                                        "justification": {"type": "string", "description": "Justification for promotion"},
+                                        "business_impact": {"type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Business impact level"},
+                                        "requested_by": {"type": "string", "description": "User requesting promotion"},
+                                        "session_id": {"type": "string", "description": "Session identifier"}
+                                    },
+                                    "required": ["source_chunk_id", "target_realm_id", "justification", "requested_by", "session_id"]
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__get_promotion_requests",
+                                "description": "Get promotion requests with optional filtering",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "processing", "completed"], "description": "Filter by status (optional)"},
+                                        "user_id": {"type": "string", "description": "Filter by user (optional)"},
+                                        "limit": {"type": "integer", "default": 50, "description": "Maximum results"}
+                                    },
+                                    "required": []
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__approve_promotion_request",
+                                "description": "Approve a pending promotion request",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
+                                        "reviewed_by": {"type": "string", "description": "User approving the request"},
+                                        "review_notes": {"type": "string", "description": "Review notes (optional)"}
+                                    },
+                                    "required": ["promotion_id", "reviewed_by"]
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__reject_promotion_request",
+                                "description": "Reject a pending promotion request",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
+                                        "reviewed_by": {"type": "string", "description": "User rejecting the request"},
+                                        "review_notes": {"type": "string", "description": "Reason for rejection"}
+                                    },
+                                    "required": ["promotion_id", "reviewed_by", "review_notes"]
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__get_promotion_impact",
+                                "description": "Get impact analysis for a promotion request",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"}
+                                    },
+                                    "required": ["promotion_id"]
+                                }
+                            },
+                            {
+                                "name": "mcp__megamind__get_promotion_queue_summary",
+                                "description": "Get summary of promotion queue status",
+                                "inputSchema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "realm_id": {"type": "string", "description": "Filter by realm (optional)"}
                                     },
                                     "required": []
                                 }
@@ -970,7 +1075,7 @@ class MCPServer:
                 tool_name = params.get('name', '')
                 tool_args = params.get('arguments', {})
                 
-                if tool_name == 'mcp__context_db__search_chunks':
+                if tool_name == 'mcp__megamind__search_chunks':
                     # Extract realm_id parameter (optional, for future use)
                     realm_id = self.extract_realm_from_arguments(tool_args)
                     # For now, use existing dual-realm search (Phase 1 compatibility)
@@ -979,6 +1084,8 @@ class MCPServer:
                         limit=tool_args.get('limit', 10),
                         search_type=tool_args.get('search_type', 'hybrid')
                     )
+                    # Clean any remaining Decimal objects before JSON serialization
+                    clean_results = clean_decimal_objects(results)
                     return {
                         "jsonrpc": "2.0",
                         "id": request_id,
@@ -986,13 +1093,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_results, indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__get_chunk':
+                elif tool_name == 'mcp__megamind__get_chunk':
                     # Extract realm_id parameter (optional, for future use)
                     realm_id = self.extract_realm_from_arguments(tool_args)
                     # For now, use existing dual-realm search (Phase 1 compatibility)
@@ -1007,13 +1114,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(result, indent=2) if result else "Chunk not found"
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder) if result else "Chunk not found"
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__get_related_chunks':
+                elif tool_name == 'mcp__megamind__get_related_chunks':
                     # Extract realm_id parameter (optional, for future use)
                     realm_id = self.extract_realm_from_arguments(tool_args)
                     # For now, use existing method (Phase 1 compatibility)
@@ -1028,13 +1135,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(results), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__get_session_primer':
+                elif tool_name == 'mcp__megamind__get_session_primer':
                     result = self.db_manager.get_session_primer(
                         last_session_data=tool_args.get('last_session_data')
                     )
@@ -1045,13 +1152,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(result, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__track_access':
+                elif tool_name == 'mcp__megamind__track_access':
                     success = self.db_manager.track_access(
                         chunk_id=tool_args.get('chunk_id', ''),
                         query_context=tool_args.get('query_context', '')
@@ -1063,13 +1170,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps({"success": success}, indent=2)
+                                    "text": json.dumps({"success": success}, indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__get_hot_contexts':
+                elif tool_name == 'mcp__megamind__get_hot_contexts':
                     results = self.db_manager.get_hot_contexts(
                         model_type=tool_args.get('model_type', 'sonnet'),
                         limit=tool_args.get('limit', 20)
@@ -1081,13 +1188,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(results), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__update_chunk':
+                elif tool_name == 'mcp__megamind__update_chunk':
                     change_id = self.db_manager.update_chunk(
                         chunk_id=tool_args.get('chunk_id', ''),
                         new_content=tool_args.get('new_content', ''),
@@ -1100,13 +1207,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps({"change_id": change_id}, indent=2)
+                                    "text": json.dumps({"change_id": change_id}, indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__create_chunk':
+                elif tool_name == 'mcp__megamind__create_chunk':
                     change_id = self.db_manager.create_chunk_with_target(
                         content=tool_args.get('content', ''),
                         source_document=tool_args.get('source_document', ''),
@@ -1121,13 +1228,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps({"change_id": change_id}, indent=2)
+                                    "text": json.dumps({"change_id": change_id}, indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__add_relationship':
+                elif tool_name == 'mcp__megamind__add_relationship':
                     change_id = self.db_manager.add_relationship(
                         chunk_id_1=tool_args.get('chunk_id_1', ''),
                         chunk_id_2=tool_args.get('chunk_id_2', ''),
@@ -1141,13 +1248,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps({"change_id": change_id}, indent=2)
+                                    "text": json.dumps({"change_id": change_id}, indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__get_pending_changes':
+                elif tool_name == 'mcp__megamind__get_pending_changes':
                     results = self.db_manager.get_pending_changes(
                         session_id=tool_args.get('session_id', '')
                     )
@@ -1158,13 +1265,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(results), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__commit_session_changes':
+                elif tool_name == 'mcp__megamind__commit_session_changes':
                     result = self.db_manager.commit_session_changes(
                         session_id=tool_args.get('session_id', ''),
                         approved_changes=tool_args.get('approved_changes', [])
@@ -1176,13 +1283,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(result, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__search_chunks_semantic':
+                elif tool_name == 'mcp__megamind__search_chunks_semantic':
                     # Extract realm_id parameter (optional, for future use)
                     realm_id = self.extract_realm_from_arguments(tool_args)
                     # For now, use existing semantic search (Phase 1 compatibility)
@@ -1198,13 +1305,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(results), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__search_chunks_by_similarity':
+                elif tool_name == 'mcp__megamind__search_chunks_by_similarity':
                     # Extract realm_id parameter (optional, for future use)
                     realm_id = self.extract_realm_from_arguments(tool_args)
                     # For now, use existing similarity search (Phase 1 compatibility)
@@ -1220,13 +1327,13 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(results, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(results), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
                     }
                 
-                elif tool_name == 'mcp__context_db__batch_generate_embeddings':
+                elif tool_name == 'mcp__megamind__batch_generate_embeddings':
                     result = self.db_manager.batch_generate_embeddings(
                         chunk_ids=tool_args.get('chunk_ids'),
                         realm_id=tool_args.get('realm_id')
@@ -1238,7 +1345,121 @@ class MCPServer:
                             "content": [
                                 {
                                     "type": "text",
-                                    "text": json.dumps(result, indent=2)
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__create_promotion_request':
+                    promotion_id = self.db_manager.create_promotion_request(
+                        source_chunk_id=tool_args.get('source_chunk_id'),
+                        target_realm_id=tool_args.get('target_realm_id'),
+                        promotion_type=tool_args.get('promotion_type', 'copy'),
+                        justification=tool_args.get('justification'),
+                        business_impact=tool_args.get('business_impact', 'medium'),
+                        requested_by=tool_args.get('requested_by'),
+                        session_id=tool_args.get('session_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps({"promotion_id": promotion_id}, indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__get_promotion_requests':
+                    requests = self.db_manager.get_promotion_requests(
+                        status=tool_args.get('status'),
+                        user_id=tool_args.get('user_id'),
+                        limit=tool_args.get('limit', 50)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(requests), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__approve_promotion_request':
+                    success = self.db_manager.approve_promotion_request(
+                        promotion_id=tool_args.get('promotion_id'),
+                        reviewed_by=tool_args.get('reviewed_by'),
+                        review_notes=tool_args.get('review_notes', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps({"success": success}, indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__reject_promotion_request':
+                    success = self.db_manager.reject_promotion_request(
+                        promotion_id=tool_args.get('promotion_id'),
+                        reviewed_by=tool_args.get('reviewed_by'),
+                        review_notes=tool_args.get('review_notes')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps({"success": success}, indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__get_promotion_impact':
+                    impact = self.db_manager.get_promotion_impact(
+                        promotion_id=tool_args.get('promotion_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(impact), indent=2, cls=MegaMindJSONEncoder) if impact else "Impact analysis not found"
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__get_promotion_queue_summary':
+                    summary = self.db_manager.get_promotion_queue_summary(
+                        realm_id=tool_args.get('realm_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(summary), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }
@@ -1291,7 +1512,7 @@ class MCPServer:
                     response = await self.handle_request(request)
                     
                     # Write JSON-RPC response to stdout
-                    print(json.dumps(response), flush=True)
+                    print(json.dumps(response, cls=MegaMindJSONEncoder), flush=True)
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"Invalid JSON received: {e}")
@@ -1303,7 +1524,7 @@ class MCPServer:
                             "message": "Parse error"
                         }
                     }
-                    print(json.dumps(error_response), flush=True)
+                    print(json.dumps(error_response, cls=MegaMindJSONEncoder), flush=True)
         
         except Exception as e:
             logger.error(f"Server error: {e}")

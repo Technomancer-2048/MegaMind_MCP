@@ -1,60 +1,84 @@
-version: '3.8'
+# Docker Compose configuration for MegaMind MCP Server - Phase 3
 
 services:
+  # MySQL Database Server
   megamind-mysql:
     image: mysql:8.0
     container_name: megamind-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-megamind_root_pass}
-      MYSQL_DATABASE: megamind_database
-      MYSQL_USER: megamind_user
-      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-megamind_secure_pass}
+      MYSQL_DATABASE: ${MEGAMIND_DB_NAME:-megamind_database}
+      MYSQL_USER: ${MEGAMIND_DB_USER:-megamind_user}
+      MYSQL_PASSWORD: ${MEGAMIND_DB_PASSWORD:-megamind_secure_pass}
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_unicode_ci
     volumes:
       - megamind_db_data:/var/lib/mysql
-      - ./database/context_system:/docker-entrypoint-initdb.d
-    ports:
-      - "10.255.250.22:3309:3306"
+      - ./database/context_system:/docker-entrypoint-initdb.d/legacy/
+      - ./mcp_server/complete_schema.sql:/docker-entrypoint-initdb.d/01-complete_schema.sql
+    # No external ports - only accessible within Docker network
+    expose:
+      - "3306"
     restart: unless-stopped
-    command: --default-authentication-plugin=mysql_native_password
     networks:
       - megamind-network
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-megamind_root_pass}"]
       timeout: 10s
       retries: 5
       interval: 30s
+      start_period: 30s
+    # MySQL performance tuning
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max_connections=200
+      --innodb_buffer_pool_size=256M
+      --innodb_log_file_size=64M
 
+  # Redis Cache
   megamind-redis:
     image: redis:7-alpine
     container_name: megamind-redis
-    ports:
-      - "10.255.250.22:6379:6379"
+    # No external ports - only accessible within Docker network
+    expose:
+      - "6379"
     volumes:
       - megamind_redis_data:/data
     restart: unless-stopped
     networks:
       - megamind-network
-    command: redis-server --appendonly yes
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
-  megamind-mcp-server:
-    build: ./mcp_server
-    container_name: megamind-mcp-server
+  # Legacy stdio MCP Server (for backward compatibility)
+  megamind-mcp-server-stdio:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: megamind-mcp-server-stdio
     environment:
       MEGAMIND_DB_HOST: megamind-mysql
       MEGAMIND_DB_PORT: 3306
-      MEGAMIND_DB_NAME: megamind_database
-      MEGAMIND_DB_USER: megamind_user
-      MEGAMIND_DB_PASSWORD: ${MYSQL_PASSWORD:-megamind_secure_pass}
+      MEGAMIND_DB_NAME: ${MEGAMIND_DB_NAME:-megamind_database}
+      MEGAMIND_DB_USER: ${MEGAMIND_DB_USER:-megamind_user}
+      MEGAMIND_DB_PASSWORD: ${MEGAMIND_DB_PASSWORD:-megamind_secure_pass}
       REDIS_URL: redis://megamind-redis:6379/3
       MEGAMIND_MCP_SERVER_PORT: 8002
       CONNECTION_POOL_SIZE: 10
+      MCP_TRANSPORT: stdio
     depends_on:
       megamind-mysql:
         condition: service_healthy
       megamind-redis:
         condition: service_started
     ports:
-      - "10.255.250.22:8002:8002"
+      - "${STDIO_BIND_IP:-10.255.250.22}:${STDIO_PORT:-8002}:8002"
     restart: unless-stopped
     networks:
       - megamind-network
@@ -63,13 +87,97 @@ services:
       timeout: 10s
       retries: 3
       interval: 30s
+    profiles:
+      - legacy
+
+  # NEW: HTTP MCP Server - Phase 3 Implementation
+  megamind-mcp-server-http:
+    build:
+      context: .
+      dockerfile: Dockerfile.http-server
+    container_name: megamind-mcp-server-http
+    restart: unless-stopped
+    environment:
+      # HTTP Transport Configuration
+      MCP_TRANSPORT: http
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 8080
+      MCP_DEFAULT_REALM: ${MCP_DEFAULT_REALM:-PROJECT}
+      MCP_REALM_FACTORY: ${MCP_REALM_FACTORY:-dynamic}
+      MCP_ENHANCED_MONITORING: ${MCP_ENHANCED_MONITORING:-true}
+      
+      # Database Configuration
+      MEGAMIND_DB_HOST: megamind-mysql
+      MEGAMIND_DB_PORT: 3306
+      MEGAMIND_DB_NAME: ${MEGAMIND_DB_NAME:-megamind_database}
+      MEGAMIND_DB_USER: ${MEGAMIND_DB_USER:-megamind_user}
+      MEGAMIND_DB_PASSWORD: ${MEGAMIND_DB_PASSWORD:-megamind_secure_pass}
+      
+      # Performance Tuning
+      CONNECTION_POOL_SIZE: ${CONNECTION_POOL_SIZE:-20}
+      EMBEDDING_CACHE_SIZE: ${EMBEDDING_CACHE_SIZE:-1000}
+      EMBEDDING_DEVICE: ${EMBEDDING_DEVICE:-cpu}
+      EMBEDDING_BATCH_SIZE: ${EMBEDDING_BATCH_SIZE:-50}
+      
+      # Logging Configuration
+      MEGAMIND_LOG_LEVEL: ${MEGAMIND_LOG_LEVEL:-INFO}
+      MEGAMIND_DEBUG: ${MEGAMIND_DEBUG:-false}
+      
+      # Model Cache Configuration
+      HF_HOME: /app/.cache/huggingface
+      TRANSFORMERS_CACHE: /app/.cache/huggingface
+      SENTENCE_TRANSFORMERS_HOME: /app/.cache/huggingface
+    
+    volumes:
+      - megamind_models:/app/models
+      - megamind_logs:/app/logs
+      - megamind_cache:/app/cache
+      - huggingface_cache:/app/.cache/huggingface
+    
+    depends_on:
+      megamind-mysql:
+        condition: service_healthy
+    
+    ports:
+      - "${HTTP_BIND_IP:-10.255.250.22}:${HTTP_PORT:-8080}:8080"
+    
+    networks:
+      - megamind-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/mcp/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+    
+    # Resource limits for production deployment
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
 
 volumes:
   megamind_db_data:
     driver: local
   megamind_redis_data:
     driver: local
+  megamind_models:
+    driver: local
+  megamind_logs:
+    driver: local
+  megamind_cache:
+    driver: local
+  huggingface_cache:
+    driver: local
 
 networks:
   megamind-network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.21.0.0/16

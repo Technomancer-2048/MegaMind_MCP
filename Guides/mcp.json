@@ -1,22 +1,121 @@
 {
   "mcpServers": {
     "megamind-database": {
-      "command": "/Data/MCP_Servers/MegaMind_MCP/venv/bin/python",
+      "description": "MegaMind Context Database MCP Server - Recommended HTTP transport",
+      "transport": "http",
+      "endpoint": "http://localhost:8080/mcp/jsonrpc",
+      "timeout": 30000,
+      "headers": {
+        "Content-Type": "application/json",
+        "X-Realm-ID": "YOUR_PROJECT_REALM"
+      },
+      "config": {
+        "defaultRealm": "YOUR_PROJECT_REALM",
+        "enableRealmSwitching": true,
+        "healthCheckUrl": "http://localhost:8080/mcp/health",
+        "statusUrl": "http://localhost:8080/mcp/status",
+        "realmsUrl": "http://localhost:8080/mcp/realms"
+      }
+    },
+    "megamind-database-stdio": {
+      "description": "MegaMind Database MCP Server - Legacy stdio transport (slower startup)",
+      "command": "/path/to/your/MegaMind_MCP/venv/bin/python",
       "args": ["megamind_database_server.py"],
-      "cwd": "/Data/MCP_Servers/MegaMind_MCP/mcp_server",
+      "cwd": "/path/to/your/MegaMind_MCP/mcp_server",
       "env": {
-        "MEGAMIND_DB_HOST": "10.255.250.21",
-        "MEGAMIND_DB_PORT": "3309",
+        "MEGAMIND_DB_HOST": "localhost",
+        "MEGAMIND_DB_PORT": "3306",
         "MEGAMIND_DB_NAME": "megamind_database",
-        "MEGAMIND_DB_USER": "megamind_user",
-        "MEGAMIND_DB_PASSWORD": "6Q93XLI6D1b7CM9QA1sm",
+        "MEGAMIND_DB_USER": "your_username",
+        "MEGAMIND_DB_PASSWORD": "your_password",
         "CONNECTION_POOL_SIZE": "10",
-        "MEGAMIND_PROJECT_REALM": "PROJ_ECOMMERCE",
+        "MEGAMIND_PROJECT_REALM": "YOUR_PROJECT_REALM",
         "MEGAMIND_DEFAULT_TARGET": "PROJECT",
         "MEGAMIND_DEBUG": "false",
         "MEGAMIND_LOG_LEVEL": "INFO",
-        "HF_HOME": "/Data/MCP_Servers/MegaMind_MCP/models",
-        "PYTHONPATH": "/Data/MCP_Servers/MegaMind_MCP/mcp_server"
+        "HF_HOME": "/path/to/your/MegaMind_MCP/models",
+        "PYTHONPATH": "/path/to/your/MegaMind_MCP/mcp_server",
+        "MCP_TRANSPORT": "stdio"
+      }
+    }
+  },
+  "_usage_notes": {
+    "transport_options": {
+      "stdio": "Traditional process-spawning transport (30-90s startup per session)",
+      "http": "Modern persistent HTTP transport (~1s response time after server startup)",
+      "http-curl": "HTTP transport via curl command (for clients without native HTTP MCP support)"
+    },
+    "realm_configuration": {
+      "description": "Realm can be specified in multiple ways (priority order):",
+      "sources": [
+        "Tool arguments: {'realm_id': 'TARGET_REALM'}",
+        "JSON-RPC params: {'realm_id': 'TARGET_REALM'}",
+        "HTTP headers: {'X-MCP-Realm-ID': 'TARGET_REALM'}",
+        "Query parameters: ?realm_id=TARGET_REALM",
+        "Default fallback: PROJECT or server default"
+      ]
+    },
+    "starting_http_server": {
+      "command": "cd /Data/MCP_Servers/MegaMind_MCP/mcp_server && ../venv/bin/python http_server.py",
+      "environment_variables": {
+        "MCP_HOST": "0.0.0.0 (default: localhost)",
+        "MCP_PORT": "8080 (default)",
+        "MCP_DEFAULT_REALM": "PROJECT (default)",
+        "MCP_REALM_FACTORY": "dynamic (default: standard)",
+        "MCP_ENHANCED_MONITORING": "true (default: false)"
+      },
+      "endpoints": {
+        "jsonrpc": "POST /mcp/jsonrpc - Main MCP JSON-RPC endpoint",
+        "health": "GET /mcp/health - Basic health check",
+        "status": "GET /mcp/status - Detailed server status and metrics",
+        "realms": "GET /mcp/realms - List available realms",
+        "realm_health": "GET /mcp/realms/{realm_id}/health - Check specific realm",
+        "api_docs": "GET /mcp/api - API documentation"
+      }
+    },
+    "migration_guide": {
+      "phase1_compatibility": "All existing stdio clients continue to work unchanged",
+      "realm_parameters": "New optional realm_id parameter added to all tools",
+      "performance_benefits": {
+        "startup_time": "30-90s → 1s response time",
+        "resource_sharing": "Multiple clients share single embedding service",
+        "concurrent_access": "Support for multiple simultaneous clients"
+      }
+    },
+    "example_tool_calls": {
+      "without_realm": {
+        "method": "tools/call",
+        "params": {
+          "name": "mcp__context_db__search_chunks",
+          "arguments": {
+            "query": "search terms",
+            "limit": 10
+          }
+        }
+      },
+      "with_realm_in_arguments": {
+        "method": "tools/call",
+        "params": {
+          "name": "mcp__context_db__search_chunks",
+          "arguments": {
+            "query": "search terms",
+            "limit": 10,
+            "realm_id": "CUSTOM_REALM"
+          }
+        }
+      },
+      "with_realm_in_header": {
+        "headers": {
+          "X-MCP-Realm-ID": "CUSTOM_REALM"
+        },
+        "method": "tools/call",
+        "params": {
+          "name": "mcp__context_db__search_chunks",
+          "arguments": {
+            "query": "search terms",
+            "limit": 10
+          }
+        }
       }
     }
   }

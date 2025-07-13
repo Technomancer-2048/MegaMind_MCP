@@ -81,9 +81,11 @@ ENV REALM_PRIORITY_PROJECT=1.2
 ENV REALM_PRIORITY_GLOBAL=1.0
 ENV CROSS_REALM_SEARCH_ENABLED=true
 
-# Set cache directories for sentence-transformers
-ENV TRANSFORMERS_CACHE=/app/.cache/transformers
-ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/sentence_transformers
+# Set unified cache directories for HuggingFace and sentence-transformers
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface
+ENV HF_HUB_CACHE=/app/.cache/huggingface
 
 # MCP Server configuration
 ENV MEGAMIND_MCP_SERVER_PORT=8002

@@ -1,0 +1,59 @@
+{
+  "description": "MegaMind MCP Server Runtime Configuration",
+  "server_mode": "development", 
+  "deployment": {
+    "type": "docker-compose",
+    "environment": "local-development",
+    "realm_configuration": {
+      "MEGAMIND_ROOT": "/Data/MCP_Servers/MegaMind_MCP",
+      "MEGAMIND_PROJECT_REALM": "MegaMind_MCP", 
+      "MEGAMIND_PROJECT_NAME": "MegaMind MCP Platform",
+      "MEGAMIND_DEFAULT_TARGET": "PROJECT"
+    },
+    "database_configuration": {
+      "MEGAMIND_DB_HOST": "10.255.250.21",
+      "MEGAMIND_DB_PORT": "3309", 
+      "MEGAMIND_DB_NAME": "megamind_database",
+      "MEGAMIND_DB_USER": "megamind_user",
+      "MEGAMIND_DB_PASSWORD": "6Q93XLI6D1b7CM9QA1sm",
+      "CONNECTION_POOL_SIZE": "10"
+    },
+    "runtime_configuration": {
+      "MEGAMIND_DEBUG": "false",
+      "MEGAMIND_LOG_LEVEL": "INFO"
+    }
+  },
+  "services": {
+    "mcp_server": {
+      "transport": "http",
+      "host": "0.0.0.0",
+      "port": 8080,
+      "endpoints": {
+        "jsonrpc": "/mcp/jsonrpc",
+        "health": "/mcp/health", 
+        "status": "/mcp/status",
+        "realms": "/mcp/realms"
+      }
+    },
+    "database": {
+      "type": "mysql",
+      "version": "8.0",
+      "host": "10.255.250.21",
+      "port": 3309
+    },
+    "redis": {
+      "type": "redis", 
+      "version": "7-alpine",
+      "host": "localhost",
+      "port": 6379
+    }
+  },
+  "docker_configuration": {
+    "compose_file": "docker-compose.yml",
+    "services": [
+      "megamind-mcp-server-http",
+      "megamind-mysql", 
+      "megamind-redis"
+    ]
+  }
+}

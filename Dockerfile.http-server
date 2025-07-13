@@ -1,0 +1,107 @@
+# MegaMind MCP HTTP Server - Phase 3 Containerization
+# Optimized container for HTTP transport with dynamic realm management
+FROM python:3.12-slim
+
+LABEL maintainer="MegaMind MCP Team"
+LABEL version="2.0.0-http"
+LABEL description="HTTP MCP Server with dynamic realm support and shared resource architecture"
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables for Python optimization
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PIP_NO_CACHE_DIR=1
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Install system dependencies - minimal set for HTTP server
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    default-libmysqlclient-dev \
+    build-essential \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# Create non-root user for security
+RUN groupadd -r mcpuser && useradd -r -g mcpuser -u 1000 -m mcpuser
+
+# Copy requirements and install Python dependencies
+COPY mcp_server/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Create application structure
+RUN mkdir -p /app/mcp_server /app/models /app/logs /app/cache \
+    && mkdir -p /app/.cache/huggingface
+
+# Copy HTTP transport MCP server code
+COPY mcp_server/http_transport.py ./mcp_server/
+COPY mcp_server/transport_manager.py ./mcp_server/
+COPY mcp_server/realm_manager_factory.py ./mcp_server/
+COPY mcp_server/http_server.py ./mcp_server/
+COPY mcp_server/megamind_database_server.py ./mcp_server/
+COPY mcp_server/realm_aware_database.py ./mcp_server/
+COPY mcp_server/realm_config.py ./mcp_server/
+COPY mcp_server/inheritance_resolver.py ./mcp_server/
+COPY mcp_server/promotion_manager.py ./mcp_server/
+COPY mcp_server/realm_security_validator.py ./mcp_server/
+COPY mcp_server/init_schema.sql ./mcp_server/
+
+# Copy services directory
+COPY mcp_server/services/ ./mcp_server/services/
+
+# Copy examples (optional, for reference)
+COPY examples/ ./examples/
+
+# Set permissions
+RUN chown -R mcpuser:mcpuser /app \
+    && chmod -R 755 /app
+
+# Set unified cache directories for machine learning models
+ENV HF_HOME=/app/.cache/huggingface
+ENV TRANSFORMERS_CACHE=/app/.cache/huggingface
+ENV SENTENCE_TRANSFORMERS_HOME=/app/.cache/huggingface
+ENV HF_HUB_CACHE=/app/.cache/huggingface
+
+# HTTP Server configuration defaults
+ENV MCP_TRANSPORT=http
+ENV MCP_HOST=0.0.0.0
+ENV MCP_PORT=8080
+ENV MCP_DEFAULT_REALM=PROJECT
+ENV MCP_REALM_FACTORY=dynamic
+ENV MCP_ENHANCED_MONITORING=true
+
+# Database configuration (overridden by docker-compose)
+ENV MEGAMIND_DB_HOST=mysql
+ENV MEGAMIND_DB_PORT=3306
+ENV MEGAMIND_DB_NAME=megamind_database
+ENV MEGAMIND_DB_USER=megamind_user
+ENV MEGAMIND_DB_PASSWORD=changeme
+
+# Performance tuning
+ENV CONNECTION_POOL_SIZE=20
+ENV EMBEDDING_CACHE_SIZE=1000
+ENV EMBEDDING_DEVICE=cpu
+ENV EMBEDDING_BATCH_SIZE=50
+
+# Logging configuration
+ENV MEGAMIND_LOG_LEVEL=INFO
+ENV MEGAMIND_DEBUG=false
+
+# Expose HTTP port
+EXPOSE 8080
+
+# Health check for HTTP server
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/mcp/health || exit 1
+
+# Switch to non-root user
+USER mcpuser
+
+# Create volumes for persistent data
+VOLUME ["/app/models", "/app/logs", "/app/cache"]
+
+# Start HTTP MCP server
+CMD ["python", "-m", "mcp_server.http_server"]

@@ -21,6 +21,22 @@ class RealmConfig:
     cross_realm_search_enabled: bool = True
     project_priority_weight: float = 1.2
     global_priority_weight: float = 1.0
+    
+    def get_search_realms(self) -> List[str]:
+        """Get list of realms to search (dual-realm access)"""
+        if self.cross_realm_search_enabled:
+            return [self.global_realm, self.project_realm]
+        else:
+            return [self.project_realm]
+    
+    def calculate_realm_priority_score(self, realm_id: str, base_score: float) -> float:
+        """Calculate priority-weighted score for realm-aware ranking"""
+        if realm_id == self.project_realm:
+            return base_score * self.project_priority_weight
+        elif realm_id == self.global_realm:
+            return base_score * self.global_priority_weight
+        else:
+            return base_score * 0.8  # Lower priority for other realms
 
 class RealmConfigurationManager:
     """Manages realm configuration from environment variables"""
@@ -123,22 +139,22 @@ class RealmAccessController:
     """Controls access patterns and permissions for realm operations"""
     
     def __init__(self, config_manager: RealmConfigurationManager):
-        self.config = config_manager
+        self.config_manager = config_manager
     
     def can_read_realm(self, realm_id: str) -> bool:
         """Check if current configuration can read from specified realm"""
         # Always can read from own project realm and global realm
-        allowed_realms = [self.config.config.project_realm, self.config.config.global_realm]
+        allowed_realms = [self.config_manager.config.project_realm, self.config_manager.config.global_realm]
         return realm_id in allowed_realms
     
     def can_write_realm(self, realm_id: str) -> bool:
         """Check if current configuration can write to specified realm"""
         # Can write to project realm, global realm requires explicit targeting
-        if realm_id == self.config.config.project_realm:
+        if realm_id == self.config_manager.config.project_realm:
             return True
-        elif realm_id == self.config.config.global_realm:
+        elif realm_id == self.config_manager.config.global_realm:
             # Global realm write requires explicit targeting
-            return self.config.config.default_target == 'GLOBAL'
+            return self.config_manager.config.default_target == 'GLOBAL'
         else:
             return False
     
@@ -159,7 +175,7 @@ class RealmAccessController:
         elif operation == 'promote':
             # Promotion typically from project to global
             if (self.can_read_realm(source_realm) and 
-                target_realm == self.config.config.global_realm):
+                target_realm == self.config_manager.config.global_realm):
                 return True, "Promotion access granted"
             else:
                 return False, f"Promotion access denied from {source_realm} to {target_realm}"
@@ -169,15 +185,15 @@ class RealmAccessController:
     
     def get_effective_realms_for_search(self) -> List[Dict[str, Any]]:
         """Get realms that should be included in search operations"""
-        search_realms = self.config.get_search_realms()
+        search_realms = self.config_manager.get_search_realms()
         realm_info = []
         
         for realm_id in search_realms:
-            priority_weight = self.config.calculate_realm_priority_score(realm_id, 1.0)
+            priority_weight = self.config_manager.calculate_realm_priority_score(realm_id, 1.0)
             realm_info.append({
                 "realm_id": realm_id,
                 "priority_weight": priority_weight,
-                "access_type": "direct" if realm_id == self.config.config.project_realm else "inherited"
+                "access_type": "direct" if realm_id == self.config_manager.config.project_realm else "inherited"
             })
         
         # Sort by priority weight (highest first)

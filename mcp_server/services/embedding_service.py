@@ -73,8 +73,17 @@ class EmbeddingService:
             return
             
         try:
-            self.model = SentenceTransformer(self.model_name, device=self.device)
-            logging.info(f"Initialized embedding model: {self.model_name} on {self.device}")
+            # Set unified cache path for HuggingFace and sentence-transformers
+            cache_dir = os.getenv('HF_HOME', os.path.expanduser('~/.cache/huggingface'))
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = cache_dir
+            os.environ['HF_HOME'] = cache_dir
+            os.environ['TRANSFORMERS_CACHE'] = cache_dir
+            
+            # Ensure cache directory exists
+            os.makedirs(cache_dir, exist_ok=True)
+            
+            self.model = SentenceTransformer(self.model_name, device=self.device, cache_folder=cache_dir)
+            logging.info(f"Initialized embedding model: {self.model_name} on {self.device} with cache: {cache_dir}")
         except Exception as e:
             logging.error(f"Failed to initialize embedding model: {e}")
             self.model = None
@@ -266,6 +275,42 @@ class EmbeddingService:
         
         self._embedding_cache[content_hash] = embedding
         self._cache_order.append(content_hash)
+    
+    def test_readiness(self) -> Dict[str, Any]:
+        """Comprehensive readiness test for the embedding service"""
+        readiness_result = {
+            'ready': False,
+            'model_loaded': self.model is not None,
+            'dependencies_available': SENTENCE_TRANSFORMERS_AVAILABLE,
+            'test_embedding_successful': False,
+            'embedding_dimension_correct': False,
+            'error': None
+        }
+        
+        try:
+            if not self.is_available():
+                readiness_result['error'] = 'Embedding service not available'
+                return readiness_result
+            
+            # Test actual embedding generation
+            test_embedding = self.generate_embedding("readiness test")
+            if test_embedding is None:
+                readiness_result['error'] = 'generate_embedding returned None'
+                return readiness_result
+            
+            readiness_result['test_embedding_successful'] = True
+            
+            # Check embedding dimension
+            if len(test_embedding) == self.embedding_dimension:
+                readiness_result['embedding_dimension_correct'] = True
+                readiness_result['ready'] = True
+            else:
+                readiness_result['error'] = f'Unexpected embedding dimension: {len(test_embedding)}, expected {self.embedding_dimension}'
+                
+        except Exception as e:
+            readiness_result['error'] = str(e)
+        
+        return readiness_result
     
     def get_embedding_stats(self) -> Dict[str, Any]:
         """Get embedding service statistics"""

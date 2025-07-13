@@ -50,27 +50,38 @@ class RealmManagerFactory:
         """Initialize services shared across all realms"""
         async with self.initialization_lock:
             if self.initialized:
+                logger.info("Shared services already initialized, skipping")
                 return
             
-            logger.info("Initializing shared embedding service...")
+            logger.info("=== Initializing Shared Services ===")
             try:
+                logger.info("Creating embedding service instance...")
                 self.shared_embedding_service = get_embedding_service()
+                logger.info("✓ Embedding service instance created")
                 
                 # Wait for embedding service to be ready
                 if hasattr(self.shared_embedding_service, 'initialize'):
+                    logger.info("Initializing embedding service...")
                     await self.shared_embedding_service.initialize()
+                    logger.info("✓ Embedding service initialization completed")
                 
                 # Test readiness
                 if hasattr(self.shared_embedding_service, 'test_readiness'):
+                    logger.info("Testing embedding service readiness...")
                     readiness = self.shared_embedding_service.test_readiness()
                     if not readiness.get('ready', False):
+                        logger.error(f"Embedding service readiness test failed: {readiness}")
                         raise RuntimeError(f"Embedding service not ready: {readiness}")
+                    logger.info("✓ Embedding service readiness test passed")
                 
                 self.initialized = True
-                logger.info("Shared embedding service initialized successfully")
+                logger.info("🎉 Shared embedding service initialized successfully")
                 
             except Exception as e:
-                logger.error(f"Failed to initialize shared embedding service: {e}")
+                logger.error(f"✗ Failed to initialize shared embedding service: {e}")
+                logger.error(f"Error type: {type(e).__name__}")
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
                 raise
     
     def create_realm_config(self, realm_id: str) -> RealmConfig:

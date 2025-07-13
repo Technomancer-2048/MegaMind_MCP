@@ -173,8 +173,22 @@ class HTTPMCPTransport:
             
             logger.debug(f"JSON-RPC request processed in {processing_time:.3f}s for realm {realm_context.realm_id}")
             
-            return web.json_response(response, headers={
-                'Content-Type': 'application/json',
+            # Clean any Decimal objects from the entire response before JSON serialization
+            from decimal import Decimal
+            def clean_response_decimals(obj):
+                if isinstance(obj, dict):
+                    return {k: clean_response_decimals(v) for k, v in obj.items()}
+                elif isinstance(obj, list):
+                    return [clean_response_decimals(item) for item in obj]
+                elif isinstance(obj, Decimal):
+                    return float(obj)
+                elif hasattr(obj, 'isoformat'):
+                    return obj.isoformat()
+                return obj
+            
+            clean_response = clean_response_decimals(response)
+            
+            return web.json_response(clean_response, headers={
                 'X-MCP-Realm-ID': realm_context.realm_id,
                 'X-Processing-Time-Ms': str(round(processing_time * 1000, 2))
             })
@@ -429,26 +443,36 @@ class HTTPMCPTransport:
     async def start_server(self):
         """Start the HTTP server"""
         try:
-            logger.info("Starting HTTP MCP Server...")
+            logger.info(f"=== Starting HTTP MCP Server ===")
+            logger.info(f"Target binding: {self.host}:{self.port}")
             
-            # Initialize shared services
+            # Initialize shared services (this is where database connections are made)
+            logger.info("Initializing shared services (database connections)...")
             await self.realm_factory.initialize_shared_services()
+            logger.info("✓ Shared services initialized successfully")
             
             # Create and start server
+            logger.info("Creating web application runner...")
             runner = web.AppRunner(self.app)
             await runner.setup()
+            logger.info("✓ Web application runner created")
             
+            logger.info(f"Creating TCP site for binding to {self.host}:{self.port}...")
             site = web.TCPSite(runner, host=self.host, port=self.port)
             await site.start()
+            logger.info("✓ TCP site started successfully")
             
-            logger.info(f"HTTP MCP Server started successfully on http://{self.host}:{self.port}")
-            logger.info(f"API documentation available at: http://{self.host}:{self.port}/mcp/api")
-            logger.info(f"Health check available at: http://{self.host}:{self.port}/mcp/health")
+            logger.info(f"🚀 HTTP MCP Server started successfully on http://{self.host}:{self.port}")
+            logger.info(f"📚 API documentation available at: http://{self.host}:{self.port}/mcp/api")
+            logger.info(f"❤️  Health check available at: http://{self.host}:{self.port}/mcp/health")
             
             return runner
             
         except Exception as e:
-            logger.error(f"Failed to start HTTP server: {e}")
+            logger.error(f"✗ Failed to start HTTP server: {e}")
+            logger.error(f"Error type: {type(e).__name__}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
     
     async def shutdown(self):

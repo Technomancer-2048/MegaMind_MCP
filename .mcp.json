@@ -8,7 +8,7 @@
       "command": "npx",
       "args": ["-y", "@upstash/context7-mcp"]
     },
-	"sql-files": {
+    "sql-files": {
       "command": "node",
       "args": ["/Data/MCP_Servers/SQL-Files-MCP/dist/sql_mcp_server.js"]
     },
@@ -40,30 +40,12 @@
         "run",
         "-i",
         "--rm",
-		"--volume", "/Data/MCP_Servers/MegaMind_MCP:/app/workspace:rw",
+        "--volume", "/Data/MCP_Servers/MegaMind_MCP:/app/workspace:rw",
         "textsmith-mcp-server"
       ],
       "env": {
         "MCP_MODE": "stdio",
-		"TEXTSMITH_MAX_FILE_SIZE": "41943040"
-      }
-    },
-	"megamind-database": {
-      "command": "python",
-      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/megamind_database_server.py"],
-      "cwd": "/Data/MCP_Servers/MegaMind_MCP",
-      "env": {
-        "MEGAMIND_DB_HOST": "10.255.250.22",
-        "MEGAMIND_DB_PORT": "3309",
-        "MEGAMIND_DB_NAME": "megamind_database",
-        "MEGAMIND_DB_USER": "megamind_user",
-        "MEGAMIND_DB_PASSWORD": "6Q93XLI6D1b7CM9QA1sm",
-        "CONNECTION_POOL_SIZE": "10",
-        "MEGAMIND_DEBUG": "false",
-        "MEGAMIND_LOG_LEVEL": "INFO",
-		"MEGAMIND_PROJECT_REALM": "MegaMind_MCP",
-		"MEGAMIND_PROJECT_NAME": "MegaMind MCP Platform",
-		"MEGAMIND_DEFAULT_TARGET": "PROJECT"
+        "TEXTSMITH_MAX_FILE_SIZE": "41943040"
       }
     }
   }

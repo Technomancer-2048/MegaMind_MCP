@@ -151,3 +151,104 @@ INSERT IGNORE INTO megamind_chunk_tags (tag_id, chunk_id, tag_type, tag_value) V
 ('tag_001', 'sample_001', 'category', 'introduction'),
 ('tag_002', 'sample_002', 'language', 'python'),
 ('tag_003', 'sample_003', 'priority', 'high');
+
+-- ================================================================
+-- PROMOTION SYSTEM TABLES (Phase 3 Extension)
+-- ================================================================
+
+-- Knowledge Promotion Queue for approval workflows
+CREATE TABLE IF NOT EXISTS megamind_promotion_queue (
+    promotion_id VARCHAR(50) PRIMARY KEY,
+    source_chunk_id VARCHAR(50) NOT NULL,
+    source_realm_id VARCHAR(50) NOT NULL,
+    target_realm_id VARCHAR(50) NOT NULL,
+    promotion_type ENUM('copy', 'move', 'reference') NOT NULL DEFAULT 'copy',
+    
+    -- Approval workflow
+    status ENUM('pending', 'approved', 'rejected', 'processing', 'completed') NOT NULL DEFAULT 'pending',
+    requested_by VARCHAR(100) NOT NULL,
+    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    reviewed_by VARCHAR(100) DEFAULT NULL,
+    reviewed_at TIMESTAMP DEFAULT NULL,
+    completed_at TIMESTAMP DEFAULT NULL,
+    
+    -- Justification and context
+    justification TEXT NOT NULL,
+    business_impact ENUM('low', 'medium', 'high', 'critical') NOT NULL DEFAULT 'medium',
+    review_notes TEXT DEFAULT NULL,
+    
+    -- Promotion metadata
+    original_content TEXT NOT NULL,
+    target_chunk_id VARCHAR(50) DEFAULT NULL,
+    promotion_session_id VARCHAR(50) NOT NULL,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (source_chunk_id) REFERENCES megamind_chunks(chunk_id) ON DELETE CASCADE,
+    
+    -- Indexes for workflow management
+    INDEX idx_promotion_status (status, requested_at DESC),
+    INDEX idx_promotion_reviewer (reviewed_by, reviewed_at DESC),
+    INDEX idx_promotion_source (source_realm_id, source_chunk_id),
+    INDEX idx_promotion_target (target_realm_id, status),
+    INDEX idx_promotion_session (promotion_session_id, status)
+) ENGINE=InnoDB;
+
+-- Knowledge Promotion History for audit trail
+CREATE TABLE IF NOT EXISTS megamind_promotion_history (
+    history_id VARCHAR(50) PRIMARY KEY,
+    promotion_id VARCHAR(50) NOT NULL,
+    
+    -- Action tracking
+    action_type ENUM('created', 'approved', 'rejected', 'completed', 'failed', 'cancelled') NOT NULL,
+    action_by VARCHAR(100) NOT NULL,
+    action_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    action_reason TEXT DEFAULT NULL,
+    
+    -- State snapshot
+    previous_status ENUM('pending', 'approved', 'rejected', 'processing', 'completed') DEFAULT NULL,
+    new_status ENUM('pending', 'approved', 'rejected', 'processing', 'completed') NOT NULL,
+    
+    -- Additional context
+    system_metadata JSON DEFAULT NULL,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (promotion_id) REFERENCES megamind_promotion_queue(promotion_id) ON DELETE CASCADE,
+    
+    -- Indexes for audit queries
+    INDEX idx_history_promotion (promotion_id, action_at DESC),
+    INDEX idx_history_user (action_by, action_at DESC),
+    INDEX idx_history_action (action_type, action_at DESC)
+) ENGINE=InnoDB;
+
+-- Promotion Impact Analysis for review assistance
+CREATE TABLE IF NOT EXISTS megamind_promotion_impact (
+    impact_id VARCHAR(50) PRIMARY KEY,
+    promotion_id VARCHAR(50) NOT NULL,
+    
+    -- Impact metrics
+    affected_chunks_count INT DEFAULT 0,
+    affected_relationships_count INT DEFAULT 0,
+    potential_conflicts_count INT DEFAULT 0,
+    
+    -- Analysis results
+    conflict_analysis JSON DEFAULT NULL,
+    dependency_analysis JSON DEFAULT NULL,
+    usage_impact JSON DEFAULT NULL,
+    
+    -- Quality assessment
+    content_quality_score DECIMAL(3,2) DEFAULT NULL,
+    relevance_score DECIMAL(3,2) DEFAULT NULL,
+    uniqueness_score DECIMAL(3,2) DEFAULT NULL,
+    
+    -- Analysis metadata
+    analyzed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    analysis_version VARCHAR(20) DEFAULT '1.0',
+    
+    -- Foreign key constraints
+    FOREIGN KEY (promotion_id) REFERENCES megamind_promotion_queue(promotion_id) ON DELETE CASCADE,
+    
+    -- Indexes for analysis queries
+    INDEX idx_impact_promotion (promotion_id),
+    INDEX idx_impact_quality (content_quality_score DESC, relevance_score DESC),
+    INDEX idx_impact_conflicts (potential_conflicts_count DESC, analyzed_at DESC)
+) ENGINE=InnoDB;

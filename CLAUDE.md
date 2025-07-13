@@ -48,35 +48,46 @@ This is currently a **planning and design repository** containing:
 ### MCP Server Functions
 The core MCP server implements these functions with **realm-aware dual-access**:
 
-#### **Search & Retrieval Functions**
+#### **Search & Retrieval Functions (5)**
 - `mcp__megamind__search_chunks(query, limit=10, search_type="hybrid")` - Enhanced dual-realm search with hybrid semantic capabilities
 - `mcp__megamind__get_chunk(chunk_id, include_relationships=true)` - Get specific chunk by ID with relationships
 - `mcp__megamind__get_related_chunks(chunk_id, max_depth=2)` - Get chunks related to specified chunk
 - `mcp__megamind__search_chunks_semantic(query, limit=10, threshold=0.7)` - Pure semantic search across Global + Project realms
 - `mcp__megamind__search_chunks_by_similarity(reference_chunk_id, limit=10, threshold=0.7)` - Find chunks similar to a reference chunk using embeddings
 
-#### **Content Management Functions**
+#### **Content Management Functions (4)**
 - `mcp__megamind__create_chunk(content, source_document, section_path, session_id, target_realm="PROJECT")` - Buffer new knowledge creation with realm targeting and embedding generation
 - `mcp__megamind__update_chunk(chunk_id, new_content, session_id)` - Buffer chunk modifications for review
 - `mcp__megamind__add_relationship(chunk_id_1, chunk_id_2, relationship_type, session_id)` - Create cross-references between chunks
 - `mcp__megamind__batch_generate_embeddings(chunk_ids=[], realm_id="")` - Generate embeddings for existing chunks in batch
 
-#### **Session Management Functions**
+#### **Knowledge Promotion Functions (6) - NEW**
+- `mcp__megamind__create_promotion_request(chunk_id, target_realm, justification, session_id)` - Request promotion of knowledge chunk to different realm
+- `mcp__megamind__get_promotion_requests(filter_status="", filter_realm="", limit=20)` - Retrieve list of promotion requests with filtering
+- `mcp__megamind__approve_promotion_request(promotion_id, approval_reason, session_id)` - Approve pending promotion request
+- `mcp__megamind__reject_promotion_request(promotion_id, rejection_reason, session_id)` - Reject promotion request with reason
+- `mcp__megamind__get_promotion_impact(promotion_id)` - Analyze potential impact of promotion on target realm
+- `mcp__megamind__get_promotion_queue_summary(filter_realm="")` - Get summary statistics of promotion queue
+
+#### **Session Management Functions (3)**
 - `mcp__megamind__get_session_primer(last_session_data="")` - Generate lightweight context for session continuity
 - `mcp__megamind__get_pending_changes(session_id)` - Get pending changes with smart highlighting
 - `mcp__megamind__commit_session_changes(session_id, approved_changes)` - Commit approved changes and track contributions
 
-#### **Analytics & Optimization Functions**
+#### **Analytics & Optimization Functions (2)**
 - `mcp__megamind__track_access(chunk_id, query_context="")` - Update access analytics for optimization
 - `mcp__megamind__get_hot_contexts(model_type="sonnet", limit=20)` - Get frequently accessed chunks prioritized by usage patterns
+
+**Total MCP Functions**: 20 (5 Search + 4 Content + 6 Promotion + 3 Session + 2 Analytics)
 
 ### Database Schema Design (MegaMind Naming Convention)
 - **Primary Tables**: `megamind_chunks`, `megamind_chunk_relationships`, `megamind_chunk_tags`
 - **Realm Management**: `megamind_realms`, `megamind_realm_inheritance`
 - **Change Management**: `megamind_session_changes`, `megamind_knowledge_contributions`
+- **Promotion System**: `megamind_promotion_queue`, `megamind_promotion_history`, `megamind_promotion_impact`
 - **Intelligence Layer**: `megamind_embeddings` (with realm support)
 - **Analytics**: `megamind_performance_metrics`, `megamind_system_health`
-- **Analytics**: Access tracking, usage patterns, relationship discovery
+- **Usage Tracking**: Access tracking, usage patterns, relationship discovery
 
 ### Integration Strategy
 - **No File System Dependencies**: Pure database interface through MCP
@@ -104,55 +115,6 @@ The core MCP server implements these functions with **realm-aware dual-access**:
 - **Intelligent Path Resolution**: The server automatically configures all cache and module paths from `MEGAMIND_ROOT`
 - **Single Realm Per Server**: Each MCP server instance is bound to one realm configuration
 - **Inheritance Aware**: The server automatically accesses inherited realms (GLOBAL + PROJECT) based on its configuration
-
-### MCP Server Environment Variable Configuration
-**CRITICAL FIX**: Due to Claude Code's subprocess environment inheritance issues with direct executable paths, the MegaMind MCP server uses a specialized configuration approach:
-
-- **Environment Command Wrapper**: Uses `env` command as wrapper instead of direct Python execution
-- **Explicit Variable Setting**: All environment variables are explicitly set in the `args` array using `env` command syntax
-- **Per-Project Configuration**: Each project's `.mcp.json` contains its own realm-specific environment variables
-- **Reliable Subprocess Inheritance**: The `env` command ensures proper environment variable passing to subprocesses
-
-**Configuration Pattern**:
-```json
-"megamind-database": {
-  "command": "env",
-  "args": [
-    "MEGAMIND_ROOT=/Data/MCP_Servers/MegaMind_MCP",
-    "MEGAMIND_PROJECT_REALM=MegaMind_MCP",
-    "MEGAMIND_PROJECT_NAME=MegaMind MCP Platform",
-    "MEGAMIND_DEFAULT_TARGET=PROJECT",
-    "MEGAMIND_DB_HOST=10.255.250.21",
-    "MEGAMIND_DB_PORT=3309",
-    "MEGAMIND_DB_NAME=megamind_database",
-    "MEGAMIND_DB_USER=megamind_user",
-    "MEGAMIND_DB_PASSWORD=...",
-    "CONNECTION_POOL_SIZE=10",
-    "MEGAMIND_DEBUG=false",
-    "MEGAMIND_LOG_LEVEL=INFO",
-    "/Data/MCP_Servers/MegaMind_MCP/venv/bin/python",
-    "megamind_database_server.py"
-  ],
-  "cwd": "/Data/MCP_Servers/MegaMind_MCP/mcp_server"
-}
-```
-
-**Why This Approach**:
-- **Subprocess Compatibility**: Claude Code handles system commands (`env`, `docker`, `node`) more reliably than direct executable paths
-- **Environment Inheritance**: The `env` command explicitly sets variables before executing the target command
-- **Per-Project Isolation**: Each project maintains its own realm configuration without global contamination
-- **Proven Pattern**: Follows the same pattern as other working MCP servers (docker, uv, npx)
-
-### Environment Path Management
-**STREAMLINED**: The server uses intelligent path resolution from a single root variable:
-
-- **Root Path**: Set `MEGAMIND_ROOT=/Data/MCP_Servers/MegaMind_MCP` (or auto-detect from script location)
-- **Automatic Derivation**: All paths are automatically configured:
-  - Model cache: `{MEGAMIND_ROOT}/models`
-  - Python modules: `{MEGAMIND_ROOT}/mcp_server`
-  - HuggingFace cache: `{MEGAMIND_ROOT}/models`
-- **No Redundant Variables**: Eliminates need for separate `HF_HOME`, `PYTHONPATH`, etc.
-- **Deployment Flexibility**: Easy to relocate entire installation by changing one variable
 
 ### Textsmith MCP Integration
 **IMPORTANT**: Use the `textsmith` MCP for all large file operations and code handling:
@@ -201,13 +163,46 @@ When working with code in this project:
 
 #### **Function Names** (Exposed MCP Tools)
 - **Format**: `mcp__megamind__[function_name]`
-- **Examples**: `mcp__megamind__search_chunks`, `mcp__megamind__get_chunk`, `mcp__megamind__create_chunk`
-- **Total Count**: 14 functions across 4 categories (Search, Content, Session, Analytics)
+- **Examples**: `mcp__megamind__search_chunks`, `mcp__megamind__get_chunk`, `mcp__megamind__create_promotion_request`
+- **Total Count**: 20 functions across 5 categories (Search, Content, Promotion, Session, Analytics)
+
+#### **Quick Reference - All 20 Functions**
+```
+Search & Retrieval (5):
+├── mcp__megamind__search_chunks
+├── mcp__megamind__get_chunk  
+├── mcp__megamind__get_related_chunks
+├── mcp__megamind__search_chunks_semantic
+└── mcp__megamind__search_chunks_by_similarity
+
+Content Management (4):
+├── mcp__megamind__create_chunk
+├── mcp__megamind__update_chunk
+├── mcp__megamind__add_relationship
+└── mcp__megamind__batch_generate_embeddings
+
+Knowledge Promotion (6):
+├── mcp__megamind__create_promotion_request
+├── mcp__megamind__get_promotion_requests
+├── mcp__megamind__approve_promotion_request
+├── mcp__megamind__reject_promotion_request
+├── mcp__megamind__get_promotion_impact
+└── mcp__megamind__get_promotion_queue_summary
+
+Session Management (3):
+├── mcp__megamind__get_session_primer
+├── mcp__megamind__get_pending_changes
+└── mcp__megamind__commit_session_changes
+
+Analytics & Optimization (2):
+├── mcp__megamind__track_access
+└── mcp__megamind__get_hot_contexts
+```
 
 #### **Database Tables** (Internal Storage)
 - **Format**: `megamind_[table_name]`
-- **Examples**: `megamind_chunks`, `megamind_realms`, `megamind_session_changes`
-- **Total Count**: 10 tables with complete realm inheritance support
+- **Examples**: `megamind_chunks`, `megamind_realms`, `megamind_promotion_queue`
+- **Total Count**: 13 tables with complete realm inheritance and promotion system support
 
 #### **Internal Method Names** (Code Implementation)
 - **Format**: `[method_name]` or `[method_name]_dual_realm`
@@ -229,6 +224,141 @@ When working with code in this project:
 - **Access Control**: Realm-based permissions are enforced automatically based on inheritance rules
 - **No Manual Realm Selection**: Do not attempt to specify realms in function calls - use the pre-configured server realm context
 
+## Knowledge Promotion System Usage Guide
+
+### Overview
+The Knowledge Promotion System enables cross-realm knowledge transfer, allowing valuable insights to move between PROJECT and GLOBAL realms through a governed workflow.
+
+### Basic Promotion Workflow
+
+#### 1. Create a Promotion Request
+```python
+# Request to promote a valuable chunk to GLOBAL realm
+result = mcp__megamind__create_promotion_request(
+    chunk_id="chunk_12345",
+    target_realm="GLOBAL",
+    justification="This debugging technique is broadly applicable across projects",
+    session_id="session_abc123"
+)
+```
+
+#### 2. Review Promotion Queue
+```python
+# Get overview of all pending promotions
+summary = mcp__megamind__get_promotion_queue_summary()
+print(f"Pending promotions: {summary['total_pending']}")
+
+# Get detailed list of promotion requests
+requests = mcp__megamind__get_promotion_requests(
+    filter_status="pending",
+    limit=10
+)
+```
+
+#### 3. Analyze Promotion Impact
+```python
+# Analyze impact before approving
+impact = mcp__megamind__get_promotion_impact("promotion_67890")
+print(f"Affected relationships: {impact['relationship_count']}")
+print(f"Similar existing chunks: {impact['similarity_matches']}")
+```
+
+#### 4. Approve or Reject Promotion
+```python
+# Approve promotion
+approval = mcp__megamind__approve_promotion_request(
+    promotion_id="promotion_67890",
+    approval_reason="High-value pattern applicable to multiple projects",
+    session_id="session_abc123"
+)
+
+# Or reject with reason
+rejection = mcp__megamind__reject_promotion_request(
+    promotion_id="promotion_67890", 
+    rejection_reason="Too project-specific, limited general applicability",
+    session_id="session_abc123"
+)
+```
+
+### Advanced Usage Patterns
+
+#### Batch Promotion Review
+```python
+# Get all pending promotions for systematic review
+pending = mcp__megamind__get_promotion_requests(filter_status="pending")
+
+for request in pending:
+    # Analyze each promotion's impact
+    impact = mcp__megamind__get_promotion_impact(request['promotion_id'])
+    
+    # Auto-approve based on criteria
+    if impact['confidence_score'] > 0.8 and impact['conflict_count'] == 0:
+        mcp__megamind__approve_promotion_request(
+            request['promotion_id'],
+            "Auto-approved: High confidence, no conflicts",
+            session_id
+        )
+```
+
+#### Realm-Specific Queue Monitoring
+```python
+# Monitor promotions targeting specific realm
+global_queue = mcp__megamind__get_promotion_queue_summary(filter_realm="GLOBAL")
+print(f"GLOBAL promotions pending: {global_queue['total_pending']}")
+
+# Track promotion activity over time
+requests = mcp__megamind__get_promotion_requests(filter_realm="GLOBAL", limit=50)
+recent_activity = [r for r in requests if r['created_date'] > '2025-07-01']
+```
+
+### Promotion System Database Schema
+
+#### megamind_promotion_queue
+- **promotion_id**: Unique identifier for promotion request
+- **chunk_id**: Source chunk being promoted  
+- **source_realm**: Origin realm of chunk
+- **target_realm**: Destination realm for promotion
+- **justification**: Reason for promotion request
+- **status**: pending, approved, rejected, completed
+- **created_by**: Session ID of requester
+- **created_date**: Request timestamp
+
+#### megamind_promotion_history  
+- **history_id**: Unique identifier for history record
+- **promotion_id**: Reference to promotion request
+- **action**: Action taken (approved, rejected, completed)
+- **action_reason**: Justification for action
+- **action_by**: Session ID of decision maker
+- **action_date**: Decision timestamp
+
+#### megamind_promotion_impact
+- **impact_id**: Unique identifier for impact analysis
+- **promotion_id**: Reference to promotion request
+- **impact_type**: Type of impact (relationship, similarity, conflict)
+- **impact_target**: Affected chunk or relationship ID
+- **impact_score**: Numerical impact assessment
+- **impact_description**: Human-readable impact summary
+
+### Best Practices
+
+#### Promotion Request Guidelines
+- **Clear Justification**: Provide specific reasons why knowledge should be promoted
+- **Scope Assessment**: Consider whether knowledge applies beyond current project
+- **Quality Review**: Ensure promoted content is well-structured and accurate
+- **Relationship Impact**: Consider how promotion affects existing cross-references
+
+#### Approval Workflow
+- **Impact Analysis First**: Always review impact before approving promotions
+- **Conflict Resolution**: Address any conflicts with existing GLOBAL knowledge
+- **Documentation**: Provide clear approval/rejection reasons for audit trail
+- **Batch Processing**: Process related promotions together for consistency
+
+#### Monitoring and Maintenance
+- **Regular Queue Review**: Monitor promotion queues to prevent backlogs
+- **Success Metrics**: Track promotion success rates and impact assessments
+- **Quality Feedback**: Use promotion outcomes to improve future requests
+- **Cross-Realm Validation**: Verify promoted knowledge integrates well in target realm
+
 ## Development Guidelines
 
 **IMPORTANT**: All coding for this system is designed for **fresh database deployment from the Docker container**. Modifying the running database is not the goal - all schema changes and fixes should be applied to the initialization scripts (`init_schema.sql`) for clean container deployments.
@@ -243,5 +373,34 @@ When implementing this system:
 7. **Relationship Preservation**: Maintain cross-reference validity through updates
 8. **Clean Deployment**: All database changes must be in initialization scripts, not migration scripts
 
-## Current Status
-This repository contains planning documents only. Implementation should follow the detailed execution plan with focus on building a robust, standalone MCP server that operates entirely through database interactions.
+## Current Status - Production Deployment Complete ✅
+
+**Deployment Status**: **PRODUCTION READY** - All 20 MCP functions deployed and operational
+
+### Implementation Summary (as of 2025-07-13)
+- ✅ **Core MCP Server**: 14 original functions fully operational
+- ✅ **Knowledge Promotion System**: 6 new functions implemented and tested
+- ✅ **Database Schema**: Complete with all promotion system tables
+- ✅ **Container Deployment**: Production container built and running
+- ✅ **HTTP Transport**: Phase 2 JSON-RPC realm management implemented
+
+### Function Availability
+**All 20 MCP functions are now available for use:**
+- **Search & Retrieval**: 5 functions (search_chunks, get_chunk, semantic search, etc.)
+- **Content Management**: 4 functions (create_chunk, update_chunk, relationships, embeddings)
+- **Knowledge Promotion**: 6 functions (create_request, approve/reject, impact analysis, queue management)
+- **Session Management**: 3 functions (session primer, pending changes, commit changes)
+- **Analytics**: 2 functions (access tracking, hot contexts)
+
+### Deployment Configuration
+- **Container**: megamind-mcp-server-http (running on port 8080)
+- **Database**: MySQL with complete schema including promotion tables
+- **Environment**: Production-ready with realm-aware dual-access patterns
+- **Transport**: HTTP and stdio transport support with realm management
+
+### Next Development Phase
+The system is ready for Phase 3 enhancements:
+- Advanced promotion scoring algorithms
+- ML-based impact prediction
+- Automated curation workflows
+- Performance optimization for embedding service startup

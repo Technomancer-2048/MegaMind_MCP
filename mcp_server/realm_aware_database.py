@@ -1011,6 +1011,112 @@ class RealmAwareMegaMindDatabase:
             if connection:
                 connection.close()
     
+    def get_promotion_queue_summary(self, realm_id: str = None) -> Dict[str, Any]:
+        """Get summary of promotion queue status"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get promotion counts by status
+            status_query = """
+            SELECT status, COUNT(*) as count
+            FROM megamind_promotion_queue
+            """ + ("WHERE target_realm_id = %s" if realm_id else "") + """
+            GROUP BY status
+            ORDER BY status
+            """
+            
+            if realm_id:
+                cursor.execute(status_query, (realm_id,))
+            else:
+                cursor.execute(status_query)
+            
+            status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
+            
+            # Get business impact distribution
+            impact_query = """
+            SELECT business_impact, COUNT(*) as count
+            FROM megamind_promotion_queue
+            WHERE status = 'pending'
+            """ + ("AND target_realm_id = %s" if realm_id else "") + """
+            GROUP BY business_impact
+            ORDER BY 
+                CASE business_impact 
+                    WHEN 'critical' THEN 1 
+                    WHEN 'high' THEN 2 
+                    WHEN 'medium' THEN 3 
+                    WHEN 'low' THEN 4 
+                END
+            """
+            
+            if realm_id:
+                cursor.execute(impact_query, (realm_id,))
+            else:
+                cursor.execute(impact_query)
+            
+            impact_distribution = {row['business_impact']: row['count'] for row in cursor.fetchall()}
+            
+            # Get oldest pending request
+            oldest_query = """
+            SELECT promotion_id, source_chunk_id, requested_at, 
+                   DATEDIFF(NOW(), requested_at) as days_pending
+            FROM megamind_promotion_queue
+            WHERE status = 'pending'
+            """ + ("AND target_realm_id = %s" if realm_id else "") + """
+            ORDER BY requested_at ASC
+            LIMIT 1
+            """
+            
+            if realm_id:
+                cursor.execute(oldest_query, (realm_id,))
+            else:
+                cursor.execute(oldest_query)
+            
+            oldest_pending = cursor.fetchone()
+            
+            # Get recent activity
+            recent_query = """
+            SELECT COUNT(*) as recent_count
+            FROM megamind_promotion_queue
+            WHERE requested_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            """ + ("AND target_realm_id = %s" if realm_id else "")
+            
+            if realm_id:
+                cursor.execute(recent_query, (realm_id,))
+            else:
+                cursor.execute(recent_query)
+            
+            recent_count = cursor.fetchone()['recent_count']
+            
+            summary = {
+                'status_counts': status_counts,
+                'impact_distribution': impact_distribution,
+                'oldest_pending': oldest_pending,
+                'recent_activity_count': recent_count,
+                'total_pending': status_counts.get('pending', 0),
+                'total_completed': status_counts.get('completed', 0),
+                'filter_realm': realm_id
+            }
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Failed to get promotion queue summary: {e}")
+            return {
+                'status_counts': {},
+                'impact_distribution': {},
+                'oldest_pending': None,
+                'recent_activity_count': 0,
+                'total_pending': 0,
+                'total_completed': 0,
+                'filter_realm': realm_id,
+                'error': str(e)
+            }
+        finally:
+            if connection:
+                connection.close()
+    
     # ===================================================================
     # Role-Based Access Control Operations (Phase 3)
     # ===================================================================
@@ -1769,6 +1875,100 @@ class RealmAwareMegaMindDatabase:
             if connection:
                 connection.close()
     
+    # ==========================================
+    # CONTENT MANAGEMENT METHODS (Missing implementations)
+    # ==========================================
+    
+    def create_chunk(self, content: str, source_document: str, section_path: str, 
+                    session_id: str, target_realm: str = None) -> str:
+        """Create new chunk - wrapper for create_chunk_with_target"""
+        return self.create_chunk_with_target(
+            content=content,
+            source_document=source_document, 
+            section_path=section_path,
+            session_id=session_id,
+            target_realm=target_realm
+        )
+    
+    def update_chunk(self, chunk_id: str, new_content: str, session_id: str) -> str:
+        """Update existing chunk content with session buffering"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Generate change ID
+            change_id = f"upd_{uuid.uuid4().hex[:12]}"
+            
+            # Buffer the change in session
+            change_data = {
+                "new_content": new_content,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            insert_query = """
+            INSERT INTO megamind_session_changes
+            (change_id, session_id, change_type, target_chunk_id, change_data, impact_score, priority)
+            VALUES (%s, %s, 'update_chunk', %s, %s, 1.0, 'medium')
+            """
+            
+            cursor.execute(insert_query, (
+                change_id, session_id, chunk_id, json.dumps(change_data)
+            ))
+            
+            connection.commit()
+            logger.info(f"Buffered chunk update for chunk {chunk_id} in session {session_id}")
+            return change_id
+            
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            logger.error(f"Failed to buffer chunk update: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+    
+    def add_relationship(self, chunk_id_1: str, chunk_id_2: str, relationship_type: str, session_id: str) -> str:
+        """Add relationship between chunks with session buffering"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Generate change ID
+            change_id = f"rel_{uuid.uuid4().hex[:12]}"
+            
+            # Buffer the change in session
+            change_data = {
+                "chunk_id_2": chunk_id_2,
+                "relationship_type": relationship_type,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            insert_query = """
+            INSERT INTO megamind_session_changes
+            (change_id, session_id, change_type, target_chunk_id, change_data, impact_score, priority)
+            VALUES (%s, %s, 'add_relationship', %s, %s, 0.5, 'low')
+            """
+            
+            cursor.execute(insert_query, (
+                change_id, session_id, chunk_id_1, json.dumps(change_data)
+            ))
+            
+            connection.commit()
+            logger.info(f"Buffered relationship {relationship_type} between {chunk_id_1} and {chunk_id_2}")
+            return change_id
+            
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            logger.error(f"Failed to buffer relationship addition: {e}")
+            raise
+        finally:
+            if connection:
+                connection.close()
+
     # ==========================================
     # HELPER METHODS for Session Management
     # ==========================================

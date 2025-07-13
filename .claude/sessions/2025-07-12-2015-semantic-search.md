@@ -325,3 +325,57 @@ Phase 1 foundation is complete and ready for Phase 2 (search integration) or imm
 - Phase 4: Performance Optimization ✅
 
 The MegaMind Context Database semantic search system is now complete with full realm-aware architecture, comprehensive optimization, and production-ready performance monitoring capabilities!
+
+---
+
+### Update - 2025-07-12 22:15
+
+**Summary**: Container reboot loop debugging and stdio-only mode reversion
+
+**Git Changes**:
+- Modified: docker-compose.prod.yml, mcp.json, mcp_server/init_database.py, database/mysql-config.cnf
+- Untracked: mcp_server/.cache/, test_server_startup.py, various cache files
+- Current branch: main (commit: c1205d2)
+
+**Todo Progress**: 8 completed, 0 in progress, 0 pending
+- ✅ Completed: Implement embedding caching strategies with LRU cache
+- ✅ Completed: Create database indexing optimization for dual-realm access  
+- ✅ Completed: Implement async processing pipeline with realm context
+- ✅ Completed: Create fresh database deployment validation script
+- ✅ Completed: Performance benchmarking and optimization testing
+- ✅ Completed: Fix missing MySQL stored function resolve_inheritance_conflict
+- ✅ Completed: Resolve FULLTEXT index mismatch causing server crashes
+- ✅ Completed: Revert MCP server to stdio-only mode with database healthcheck
+
+**Details**: Successfully resolved container reboot loop by identifying and fixing multiple cascading issues:
+
+**Root Cause Analysis:**
+- MCP server was designed for stdin/stdout JSON-RPC protocol but container expected HTTP server mode
+- Multiple database schema issues preventing proper initialization
+- Missing stored functions and FULLTEXT indexes causing server crashes
+
+**Issues Fixed:**
+1. **Database Connection**: Fixed MySQL password and host configuration
+2. **Missing Schema Components**: Added realm tables (`megamind_realms`, `megamind_realm_inheritance`)
+3. **Stored Functions**: Created `resolve_inheritance_conflict` function for inheritance resolver
+4. **FULLTEXT Indexes**: Added separate FULLTEXT index on `content` column for search compatibility
+5. **MySQL Configuration**: Enabled `log_bin_trust_function_creators = 1` for function creation
+
+**Architecture Changes:**
+- **Reverted to stdio-only**: Removed HTTP server endpoints per user request
+- **Updated Docker healthcheck**: Changed from HTTP endpoint to database connectivity test
+- **Removed HTTP configuration**: Eliminated port mappings and server port environment variables
+- **Maintained MCP protocol**: Full JSON-RPC over stdin/stdout compatibility
+
+**Code Changes:**
+- `docker-compose.prod.yml`: Updated healthcheck to use database ping instead of HTTP endpoint
+- `mcp.json`: Added missing realm environment variables and corrected database host
+- `init_database.py`: Enhanced with realm table creation and stored function installation
+- `database/mysql-config.cnf`: Added function creation permissions
+
+**Verification:**
+- Created `test_server_startup.py` for component testing
+- All imports, database connections, and realm-aware database initialization successful
+- MCP server runs successfully in stdio-only mode with proper environment
+
+**Result**: Container reboot loop eliminated, MCP server operational in stdio-only mode with database-based healthcheck, all semantic search functionality intact.

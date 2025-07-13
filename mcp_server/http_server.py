@@ -37,11 +37,26 @@ def load_http_config() -> Dict[str, Any]:
     db_config = load_config()
     
     # HTTP server specific configuration
+    # Store HTTP server settings before merging database config
+    http_host = os.getenv('MCP_HOST', '0.0.0.0')
+    http_port = int(os.getenv('MCP_PORT', 8080))
+    
     http_config = {
-        # Transport settings
+        # Database configuration (with db_ prefix to avoid conflicts)
+        'db_host': db_config['host'],
+        'db_port': db_config['port'], 
+        'db_database': db_config['database'],
+        'db_user': db_config['user'],
+        'db_password': db_config['password'],
+        'db_pool_size': db_config['pool_size'],
+        
+        # Path configuration
+        **path_config,
+        
+        # Transport settings (MUST be after db_config to avoid override)
         'transport': 'http',
-        'host': os.getenv('MCP_HOST', '0.0.0.0'),
-        'port': int(os.getenv('MCP_PORT', 8080)),
+        'host': http_host,
+        'port': http_port,
         
         # Realm management
         'realm_factory_type': os.getenv('MCP_REALM_FACTORY', 'dynamic'),
@@ -49,12 +64,6 @@ def load_http_config() -> Dict[str, Any]:
         
         # Enhanced features
         'enhanced_monitoring': os.getenv('MCP_ENHANCED_MONITORING', 'true').lower() == 'true',
-        
-        # Database configuration (merge from load_config)
-        **db_config,
-        
-        # Path configuration
-        **path_config
     }
     
     return http_config
@@ -68,17 +77,25 @@ async def main():
         config = load_http_config()
         
         # Validate required configuration
-        if not config.get('password'):
+        if not config.get('db_password'):
             logger.error("Database password not configured. Set MEGAMIND_DB_PASSWORD environment variable.")
             return 1
         
         logger.info(f"HTTP Server Configuration:")
-        logger.info(f"  Host: {config['host']}")
-        logger.info(f"  Port: {config['port']}")
+        logger.info(f"  HTTP Host: {config['host']}")
+        logger.info(f"  HTTP Port: {config['port']}")
         logger.info(f"  Realm Factory: {config['realm_factory_type']}")
         logger.info(f"  Default Realm: {config['default_realm']}")
         logger.info(f"  Enhanced Monitoring: {config['enhanced_monitoring']}")
-        logger.info(f"  Database Host: {config['host']}")
+        
+        # Log database configuration separately
+        db_config = load_config()
+        logger.info(f"Database Configuration:")
+        logger.info(f"  DB Host: {db_config['host']}")
+        logger.info(f"  DB Port: {db_config['port']}")
+        logger.info(f"  DB Name: {db_config['database']}")
+        logger.info(f"  DB User: {db_config['user']}")
+        logger.info(f"  DB Pool Size: {db_config['pool_size']}")
         
         # Start the transport server
         await main_transport_server(config)
