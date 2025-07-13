@@ -1,16 +1,16 @@
 # MegaMind MCP Quick Start Guide for Claude Code
 
-This guide helps you set up and configure the MegaMind Context Database MCP server for use with Claude Code (claude.ai/code) using the **HTTP transport method** for optimal performance.
+This guide helps you set up and configure the MegaMind Context Database MCP server for use with Claude Code (claude.ai/code) using the **STDIO-HTTP bridge** for secure and seamless integration.
 
 ## 🎯 What You'll Get
 
 After following this guide, you'll have:
-- **20 MCP functions** for intelligent context management via HTTP transport
-- **Dynamic realm management** with HTTP headers for multi-project support
+- **20 MCP functions** for intelligent context management via secure bridge
+- **PROJECT-only realm access** with GLOBAL access protection for security
 - **Semantic search** capabilities across your knowledge base
 - **Knowledge promotion system** for cross-project knowledge sharing
 - **70-80% reduction** in context token consumption
-- **Sub-second retrieval** with persistent HTTP connections
+- **Sub-second retrieval** with optimized bridge architecture
 
 ## 📋 Prerequisites
 
@@ -108,27 +108,21 @@ The MCP configuration file should be at:
 - **Linux**: `~/.config/claude-code/mcp.json`  
 - **Windows**: `%APPDATA%\claude-code\mcp.json`
 
-### 3.2 Configure MCP Connection (HTTP Transport - Recommended)
+### 3.2 Configure MCP Connection (STDIO-HTTP Bridge - Recommended)
 
-**HTTP transport is the recommended method** as it provides better performance, persistent connections, and dynamic realm management.
+**STDIO-HTTP bridge is the recommended method** as it provides secure realm isolation, proper MCP protocol compliance, and automated security filtering.
 
 Edit your `mcp.json` file:
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "megamind-context-db": {
-      "command": "curl",
-      "args": [
-        "-X", "POST",
-        "-H", "Content-Type: application/json",
-        "-H", "X-MCP-Realm-ID: YOUR_PROJECT_NAME",
-        "-H", "X-MCP-Project-Name: Your Project Display Name",
-        "--data-raw", "{}",
-        "http://localhost:8080/mcp/jsonrpc"
-      ],
+      "command": "python3",
+      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
       "env": {
         "MEGAMIND_PROJECT_REALM": "YOUR_PROJECT_NAME",
+        "MEGAMIND_PROJECT_NAME": "Your Project Display Name",
         "MEGAMIND_DEFAULT_TARGET": "PROJECT"
       }
     }
@@ -137,17 +131,32 @@ Edit your `mcp.json` file:
 ```
 
 **Key Configuration Notes**:
-- `X-MCP-Realm-ID` header: Sets your project realm (e.g., "ECOMMERCE_API", "MOBILE_APP")
-- `X-MCP-Project-Name` header: Human-readable project name for display
-- HTTP endpoint: `http://localhost:8080/mcp/jsonrpc` (persistent server)
-- Environment variables: Provide fallback configuration
+- **Secure Bridge**: Automatically blocks GLOBAL realm access for security
+- **PROJECT-Only**: All requests sanitized to PROJECT or MegaMind_MCP realms only
+- **Path**: Update the bridge script path to match your installation directory
+- **Environment**: Configures realm context for your specific project
 
-### 3.3 Alternative: Stdio Transport (Legacy)
-For stdio-based connection (slower startup but simpler):
+### 3.3 Security Features
+
+The STDIO-HTTP bridge provides built-in security:
+- **GLOBAL Access Blocked**: Prevents unauthorized access to global knowledge
+- **Request Sanitization**: All requests filtered before reaching backend
+- **Graceful Degradation**: Blocked requests automatically redirected to PROJECT realm
+- **Audit Logging**: Security violations logged for monitoring
+
+### 3.4 Connection Architecture
+```
+Claude Code (STDIO) → stdio_http_bridge.py → HTTP MCP Server (10.255.250.22:8080) → Database
+                      ↑
+                Security Layer
+```
+
+### 3.5 Alternative: Direct Docker Connection (Not Recommended)
+For direct container connection (requires Docker network access):
 
 ```json
 {
-  "servers": {
+  "mcpServers": {
     "megamind-context-db": {
       "command": "docker",
       "args": [
@@ -164,21 +173,25 @@ For stdio-based connection (slower startup but simpler):
 }
 ```
 
+**Note**: This method bypasses security controls and is not recommended for production use.
+
 ## 🧪 Step 4: Test the Integration
 
-### 4.1 Verify HTTP Transport
-First, test the HTTP endpoint directly:
+### 4.1 Verify STDIO-HTTP Bridge
+First, test the bridge directly:
 
 ```bash
-# Test basic connectivity
-curl -X POST \
-  -H "Content-Type: application/json" \
-  -H "X-MCP-Realm-ID: YOUR_PROJECT_NAME" \
-  -H "X-MCP-Project-Name: Your Project Display Name" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
-  http://localhost:8080/mcp/jsonrpc
+# Test the bridge connectivity
+echo '{"jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {}}' | \
+  python3 /Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py
 
-# Expected response: List of 20 MCP functions
+# Expected response: List of 20 MCP functions with security audit logs
+```
+
+You should see security logs like:
+```
+2025-07-13 16:xx:xx - __main__ - INFO - === MegaMind MCP STDIO-HTTP Bridge ===
+2025-07-13 16:xx:xx - __main__ - INFO - ✓ HTTP backend is accessible and healthy
 ```
 
 ### 4.2 Restart Claude Code

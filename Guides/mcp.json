@@ -1,49 +1,42 @@
 {
   "mcpServers": {
-    "megamind-database": {
-      "description": "MegaMind Context Database MCP Server - Recommended HTTP transport",
-      "transport": "http",
-      "endpoint": "http://localhost:8080/mcp/jsonrpc",
-      "timeout": 30000,
-      "headers": {
-        "Content-Type": "application/json",
-        "X-Realm-ID": "YOUR_PROJECT_REALM"
-      },
-      "config": {
-        "defaultRealm": "YOUR_PROJECT_REALM",
-        "enableRealmSwitching": true,
-        "healthCheckUrl": "http://localhost:8080/mcp/health",
-        "statusUrl": "http://localhost:8080/mcp/status",
-        "realmsUrl": "http://localhost:8080/mcp/realms"
+    "megamind-context-db": {
+      "description": "MegaMind Context Database MCP Server - Secure STDIO-HTTP Bridge (Recommended)",
+      "command": "python3",
+      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "YOUR_PROJECT_REALM",
+        "MEGAMIND_PROJECT_NAME": "Your Project Display Name",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT"
       }
     },
-    "megamind-database-stdio": {
-      "description": "MegaMind Database MCP Server - Legacy stdio transport (slower startup)",
-      "command": "/path/to/your/MegaMind_MCP/venv/bin/python",
-      "args": ["megamind_database_server.py"],
-      "cwd": "/path/to/your/MegaMind_MCP/mcp_server",
+    "megamind-context-db-legacy": {
+      "description": "MegaMind Database MCP Server - Direct Docker (Not Recommended - No Security)",
+      "command": "docker",
+      "args": [
+        "exec", "-i", "megamind-mcp-server-http",
+        "python", "-m", "mcp_server.megamind_database_server"
+      ],
       "env": {
-        "MEGAMIND_DB_HOST": "localhost",
-        "MEGAMIND_DB_PORT": "3306",
-        "MEGAMIND_DB_NAME": "megamind_database",
-        "MEGAMIND_DB_USER": "your_username",
-        "MEGAMIND_DB_PASSWORD": "your_password",
-        "CONNECTION_POOL_SIZE": "10",
         "MEGAMIND_PROJECT_REALM": "YOUR_PROJECT_REALM",
-        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
-        "MEGAMIND_DEBUG": "false",
-        "MEGAMIND_LOG_LEVEL": "INFO",
-        "HF_HOME": "/path/to/your/MegaMind_MCP/models",
-        "PYTHONPATH": "/path/to/your/MegaMind_MCP/mcp_server",
-        "MCP_TRANSPORT": "stdio"
+        "MEGAMIND_PROJECT_NAME": "Your Project Display Name",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT"
       }
     }
   },
   "_usage_notes": {
     "transport_options": {
-      "stdio": "Traditional process-spawning transport (30-90s startup per session)",
-      "http": "Modern persistent HTTP transport (~1s response time after server startup)",
-      "http-curl": "HTTP transport via curl command (for clients without native HTTP MCP support)"
+      "stdio_bridge": "Secure STDIO-HTTP bridge with realm filtering (Recommended)",
+      "docker_direct": "Direct Docker container access (No security controls)",
+      "legacy_stdio": "Traditional database connection (Requires environment setup)"
+    },
+    "security_features": {
+      "stdio_bridge": {
+        "global_access_blocked": "Prevents unauthorized GLOBAL realm access",
+        "request_sanitization": "All requests filtered before reaching backend",
+        "graceful_degradation": "Blocked requests redirected to PROJECT realm",
+        "audit_logging": "Security violations logged for monitoring"
+      }
     },
     "realm_configuration": {
       "description": "Realm can be specified in multiple ways (priority order):",
@@ -86,23 +79,35 @@
       "without_realm": {
         "method": "tools/call",
         "params": {
-          "name": "mcp__context_db__search_chunks",
+          "name": "mcp__megamind__search_chunks",
           "arguments": {
             "query": "search terms",
             "limit": 10
           }
         }
       },
-      "with_realm_in_arguments": {
+      "with_realm_in_arguments_allowed": {
         "method": "tools/call",
         "params": {
-          "name": "mcp__context_db__search_chunks",
+          "name": "mcp__megamind__search_chunks",
           "arguments": {
             "query": "search terms",
             "limit": 10,
-            "realm_id": "CUSTOM_REALM"
+            "realm_id": "PROJECT"
           }
         }
+      },
+      "with_realm_in_arguments_blocked": {
+        "method": "tools/call",
+        "params": {
+          "name": "mcp__megamind__search_chunks",
+          "arguments": {
+            "query": "search terms",
+            "limit": 10,
+            "realm_id": "GLOBAL"
+          }
+        },
+        "note": "This will be blocked and forced to PROJECT realm by security bridge"
       },
       "with_realm_in_header": {
         "headers": {

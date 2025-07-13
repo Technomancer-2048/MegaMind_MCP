@@ -17,9 +17,36 @@ Current markdown-based knowledge systems consume 14,600+ tokens for simple tasks
 
 ## Project Structure
 
-This is currently a **planning and design repository** containing:
-- `context_db_project_mission.md` - Project mission, goals, and success metrics
-- `context_db_execution_plan.md` - Detailed implementation plan with phases
+This is a **production-ready MCP server** with the following structure:
+
+### Core MCP Server (`mcp_server/`)
+- `megamind_database_server.py` - Main MCP server implementation with all 20 functions
+- `realm_aware_database.py` - Realm-aware database operations and dual-access patterns
+- `stdio_http_bridge.py` - **STDIO-to-HTTP bridge for Claude Code connectivity** ✨
+- `http_transport.py` - HTTP transport for direct API access
+- `realm_manager_factory.py` - Dynamic realm management and configuration
+- `services/` - Embedding, caching, and vector search services
+
+### Database & Schema (`database/`, `mcp_server/`)
+- `complete_schema.sql` - Full production database schema with all 13 tables
+- `database/realm_system/` - Realm inheritance and promotion system schemas
+- `database/context_system/` - Legacy context system schemas
+
+### Tools & Utilities (`tools/`)
+- `realm_aware_markdown_ingester.py` - Bulk knowledge ingestion with realm support
+- `bulk_semantic_ingester.py` - Advanced semantic processing pipeline
+- `markdown_ingester.py` - Basic markdown processing
+
+### Configuration & Deployment
+- `docker-compose.yml` - Production container orchestration
+- `.env` - Environment configuration for database credentials and realm settings
+- `.mcp.json` - **Claude Code MCP configuration with STDIO bridge** ✨
+- `scripts/` - Deployment, migration, and testing scripts
+
+### Planning & Documentation (`planning/`, `guides/`)
+- `context_db_project_mission.md` - Project mission and success metrics
+- `context_db_execution_plan.md` - Implementation phases and architecture
+- `guides/claude-code-quickstart.md` - Claude Code integration guide
 
 ## Development Phases
 
@@ -101,6 +128,33 @@ The core MCP server implements these functions with **realm-aware dual-access**:
 - **Performance**: Sub-second retrieval for interactive workflows
 
 ## MCP Usage Patterns
+
+### Claude Code Connection (Primary Method)
+**CURRENT**: Claude Code connects via STDIO-to-HTTP bridge with built-in security:
+
+#### Connection Architecture
+```
+Claude Code (STDIO) → stdio_http_bridge.py → HTTP MCP Server (10.255.250.22:8080) → Database
+```
+
+#### Security Features
+- **Realm Access Control**: GLOBAL realm access blocked, only PROJECT and MegaMind_MCP allowed
+- **Request Sanitization**: All requests filtered before reaching HTTP backend  
+- **Graceful Degradation**: Blocked requests forced to PROJECT realm (no failures)
+- **Audit Logging**: All security violations logged with warnings
+
+#### Configuration in `.mcp.json`
+```json
+"megamind-context-db": {
+  "command": "python3",
+  "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
+  "env": {
+    "MEGAMIND_PROJECT_REALM": "MegaMind_MCP",
+    "MEGAMIND_PROJECT_NAME": "MegaMind Context Database", 
+    "MEGAMIND_DEFAULT_TARGET": "PROJECT"
+  }
+}
+```
 
 ### MegaMind Realm Configuration
 **CRITICAL**: The MegaMind MCP server uses realm-aware database operations with environment-based configuration:
@@ -375,14 +429,16 @@ When implementing this system:
 
 ## Current Status - Production Deployment Complete ✅
 
-**Deployment Status**: **PRODUCTION READY** - All 20 MCP functions deployed and operational
+**Deployment Status**: **PRODUCTION READY** - All 20 MCP functions deployed and operational with Claude Code connectivity
 
 ### Implementation Summary (as of 2025-07-13)
 - ✅ **Core MCP Server**: 14 original functions fully operational
-- ✅ **Knowledge Promotion System**: 6 new functions implemented and tested
+- ✅ **Knowledge Promotion System**: 6 new functions implemented and tested  
 - ✅ **Database Schema**: Complete with all promotion system tables
 - ✅ **Container Deployment**: Production container built and running
 - ✅ **HTTP Transport**: Phase 2 JSON-RPC realm management implemented
+- ✅ **Claude Code Integration**: STDIO-HTTP bridge with security controls deployed
+- ✅ **Connectivity Issue Resolution**: GitHub Issue #12 resolved with secure bridge
 
 ### Function Availability
 **All 20 MCP functions are now available for use:**
@@ -396,7 +452,26 @@ When implementing this system:
 - **Container**: megamind-mcp-server-http (running on port 8080)
 - **Database**: MySQL with complete schema including promotion tables
 - **Environment**: Production-ready with realm-aware dual-access patterns
-- **Transport**: HTTP and stdio transport support with realm management
+- **Transport**: HTTP server + STDIO-HTTP bridge for Claude Code connectivity
+- **Security**: PROJECT-only realm access via STDIO bridge with GLOBAL access blocked
+
+### File Structure Overview
+```
+MegaMind_MCP/
+├── mcp_server/              # Core MCP implementation
+│   ├── stdio_http_bridge.py # ✨ Claude Code STDIO bridge
+│   ├── megamind_database_server.py # Main MCP server
+│   ├── realm_aware_database.py     # Realm-aware operations
+│   └── services/            # Embedding and search services
+├── database/                # Schema and migrations
+│   ├── realm_system/        # Realm inheritance schemas
+│   └── context_system/      # Legacy context schemas
+├── tools/                   # Ingestion and utilities
+├── scripts/                 # Deployment and testing
+├── .mcp.json               # ✨ Claude Code configuration
+├── .env                    # Environment variables
+└── docker-compose.yml      # Container orchestration
+```
 
 ### Next Development Phase
 The system is ready for Phase 3 enhancements:

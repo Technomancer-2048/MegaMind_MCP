@@ -44,6 +44,7 @@ The MegaMind Context Database System solves the critical problem of AI context w
 - **Docker** and **Docker Compose** (v2.0+)
 - **8GB+ RAM** (for ML models and database)
 - **Linux/macOS/Windows** with WSL2
+- **Claude Code** (for MCP client integration)
 
 ### 🐳 Production Deployment
 
@@ -74,10 +75,41 @@ The MegaMind Context Database System solves the critical problem of AI context w
    ```
 
 4. **Access services**
-   - **MCP Server**: `http://10.255.250.21:8002`
-   - **MySQL Database**: `10.255.250.21:3309`
-   - **Redis Cache**: `10.255.250.21:6379`
-   - **Dashboard** (optional): `http://10.255.250.21:8080`
+   - **HTTP MCP Server**: `http://10.255.250.22:8080/mcp/jsonrpc`
+   - **MySQL Database**: `10.255.250.22:3309`
+   - **Redis Cache**: `10.255.250.22:6379`
+   - **Dashboard** (optional): `http://10.255.250.22:8080`
+
+### 🔌 Claude Code Integration
+
+1. **Configure MCP connection**
+   ```json
+   // Add to your .mcp.json file
+   {
+     "mcpServers": {
+       "megamind-context-db": {
+         "command": "python3",
+         "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
+         "env": {
+           "MEGAMIND_PROJECT_REALM": "MegaMind_MCP",
+           "MEGAMIND_PROJECT_NAME": "MegaMind Context Database",
+           "MEGAMIND_DEFAULT_TARGET": "PROJECT"
+         }
+       }
+     }
+   }
+   ```
+
+2. **Security Features**
+   - **PROJECT-Only Access**: GLOBAL realm access automatically blocked for security
+   - **Request Sanitization**: All requests filtered before reaching backend
+   - **Graceful Degradation**: Blocked requests forced to PROJECT realm
+   - **Audit Logging**: Security violations logged with warnings
+
+3. **Connection Architecture**
+   ```
+   Claude Code (STDIO) → stdio_http_bridge.py → HTTP MCP Server → Database
+   ```
 
 ### 🛠️ Development Setup
 
