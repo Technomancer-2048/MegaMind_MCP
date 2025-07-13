@@ -136,27 +136,14 @@ class STDIOHttpBridge:
             }
     
     def handle_local_mcp_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Handle MCP initialization requests locally in the bridge"""
+        """Handle MCP initialization requests - forward initialize to get actual capabilities"""
         method = request_data.get('method', '')
         request_id = request_data.get('id')
         
         if method == 'initialize':
-            logger.info("🤝 Handling MCP initialize request locally")
-            return {
-                "jsonrpc": "2.0", 
-                "id": request_id,
-                "result": {
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {},
-                        "resources": {}
-                    },
-                    "serverInfo": {
-                        "name": "megamind-stdio-bridge", 
-                        "version": "1.0.0"
-                    }
-                }
-            }
+            logger.info("🤝 Forwarding MCP initialize request to HTTP backend for capabilities")
+            # Forward to HTTP backend to get actual tool capabilities
+            return None  # Signal to forward to HTTP backend
         elif method == 'notifications/initialized':
             logger.info("🎉 Client initialization complete - ready for normal operations")
             return None  # Notifications don't return responses

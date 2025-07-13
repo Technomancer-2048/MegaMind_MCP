@@ -772,6 +772,269 @@ class MCPServer:
         self.request_id = 0
         self.default_realm = os.getenv('MEGAMIND_PROJECT_REALM', 'PROJECT')
     
+    def get_tools_list(self) -> List[Dict[str, Any]]:
+        """Get the complete list of MCP tools for both initialize and tools/list responses"""
+        return [
+            {
+                "name": "mcp__megamind__search_chunks",
+                "description": "Enhanced dual-realm search with hybrid semantic capabilities",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
+                        "search_type": {"type": "string", "default": "hybrid", "description": "Search type: semantic, keyword, or hybrid"},
+                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_chunk",
+                "description": "Get specific chunk by ID with relationships",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
+                        "include_relationships": {"type": "boolean", "default": True, "description": "Include relationships"},
+                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
+                    },
+                    "required": ["chunk_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_related_chunks",
+                "description": "Get chunks related to specified chunk",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Source chunk identifier"},
+                        "max_depth": {"type": "integer", "default": 2, "description": "Maximum relationship depth"},
+                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
+                    },
+                    "required": ["chunk_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_session_primer",
+                "description": "Generate lightweight context for session continuity",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "last_session_data": {"type": "string", "description": "Previous session data (optional)"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__track_access",
+                "description": "Update access analytics for optimization",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
+                        "query_context": {"type": "string", "default": "", "description": "Query context (optional)"}
+                    },
+                    "required": ["chunk_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_hot_contexts",
+                "description": "Get frequently accessed chunks prioritized by usage patterns",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "model_type": {"type": "string", "default": "sonnet", "description": "Model optimization"},
+                        "limit": {"type": "integer", "default": 20, "description": "Maximum results"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__update_chunk",
+                "description": "Buffer chunk modifications for review",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
+                        "new_content": {"type": "string", "description": "Updated content"},
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["chunk_id", "new_content", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__create_chunk",
+                "description": "Buffer new knowledge creation with realm targeting and embedding generation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "Chunk content"},
+                        "source_document": {"type": "string", "description": "Source document"},
+                        "section_path": {"type": "string", "description": "Section path"},
+                        "session_id": {"type": "string", "description": "Session identifier"},
+                        "target_realm": {"type": "string", "description": "Target realm (optional, defaults to PROJECT)"}
+                    },
+                    "required": ["content", "source_document", "section_path", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__add_relationship",
+                "description": "Create cross-references between chunks",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id_1": {"type": "string", "description": "Source chunk identifier"},
+                        "chunk_id_2": {"type": "string", "description": "Target chunk identifier"},
+                        "relationship_type": {"type": "string", "description": "Relationship type"},
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["chunk_id_1", "chunk_id_2", "relationship_type", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_pending_changes",
+                "description": "Get pending changes with smart highlighting",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__commit_session_changes",
+                "description": "Commit approved changes and track contributions",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"},
+                        "approved_changes": {"type": "array", "items": {"type": "string"}, "description": "List of approved change IDs"}
+                    },
+                    "required": ["session_id", "approved_changes"]
+                }
+            },
+            {
+                "name": "mcp__megamind__search_chunks_semantic",
+                "description": "Pure semantic search across Global + Project realms",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {"type": "string", "description": "Search query"},
+                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
+                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
+                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
+                    },
+                    "required": ["query"]
+                }
+            },
+            {
+                "name": "mcp__megamind__search_chunks_by_similarity",
+                "description": "Find chunks similar to a reference chunk using embeddings",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "reference_chunk_id": {"type": "string", "description": "Reference chunk identifier"},
+                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
+                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
+                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
+                    },
+                    "required": ["reference_chunk_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__batch_generate_embeddings",
+                "description": "Generate embeddings for existing chunks in batch",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs (optional)"},
+                        "realm_id": {"type": "string", "description": "Realm ID to process (optional)"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__create_promotion_request",
+                "description": "Create a promotion request to move knowledge between realms",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "source_chunk_id": {"type": "string", "description": "Source chunk identifier"},
+                        "target_realm_id": {"type": "string", "description": "Target realm identifier"},
+                        "promotion_type": {"type": "string", "enum": ["copy", "move", "reference"], "default": "copy", "description": "Type of promotion"},
+                        "justification": {"type": "string", "description": "Justification for promotion"},
+                        "business_impact": {"type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Business impact level"},
+                        "requested_by": {"type": "string", "description": "User requesting promotion"},
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["source_chunk_id", "target_realm_id", "justification", "requested_by", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_promotion_requests",
+                "description": "Get promotion requests with optional filtering",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "processing", "completed"], "description": "Filter by status (optional)"},
+                        "user_id": {"type": "string", "description": "Filter by user (optional)"},
+                        "limit": {"type": "integer", "default": 50, "description": "Maximum results"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__approve_promotion_request",
+                "description": "Approve a pending promotion request",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
+                        "reviewed_by": {"type": "string", "description": "User approving the request"},
+                        "review_notes": {"type": "string", "description": "Review notes (optional)"}
+                    },
+                    "required": ["promotion_id", "reviewed_by"]
+                }
+            },
+            {
+                "name": "mcp__megamind__reject_promotion_request",
+                "description": "Reject a pending promotion request",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
+                        "reviewed_by": {"type": "string", "description": "User rejecting the request"},
+                        "review_notes": {"type": "string", "description": "Reason for rejection"}
+                    },
+                    "required": ["promotion_id", "reviewed_by", "review_notes"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_promotion_impact",
+                "description": "Get impact analysis for a promotion request",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "promotion_id": {"type": "string", "description": "Promotion request identifier"}
+                    },
+                    "required": ["promotion_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__get_promotion_queue_summary",
+                "description": "Get summary of promotion queue status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "realm_id": {"type": "string", "description": "Filter by realm (optional)"}
+                    },
+                    "required": []
+                }
+            }
+        ]
+    
     def extract_realm_from_arguments(self, tool_args: Dict[str, Any]) -> Optional[str]:
         """Extract realm_id from tool arguments for future realm-aware operations"""
         realm_id = tool_args.get('realm_id')
@@ -788,13 +1051,14 @@ class MCPServer:
             request_id = request.get('id')
             
             if method == 'initialize':
+                tools_list = self.get_tools_list()
                 return {
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
                         "protocolVersion": "2024-11-05",
                         "capabilities": {
-                            "tools": {}
+                            "tools": {tool["name"]: tool for tool in tools_list}
                         },
                         "serverInfo": {
                             "name": "megamind-database",
@@ -808,266 +1072,7 @@ class MCPServer:
                     "jsonrpc": "2.0",
                     "id": request_id,
                     "result": {
-                        "tools": [
-                            {
-                                "name": "mcp__megamind__search_chunks",
-                                "description": "Enhanced dual-realm search with hybrid semantic capabilities",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "query": {"type": "string", "description": "Search query"},
-                                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "search_type": {"type": "string", "default": "hybrid", "description": "Search type: semantic, keyword, or hybrid"},
-                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
-                                    },
-                                    "required": ["query"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_chunk",
-                                "description": "Get specific chunk by ID with relationships",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
-                                        "include_relationships": {"type": "boolean", "default": True, "description": "Include relationships"},
-                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
-                                    },
-                                    "required": ["chunk_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_related_chunks",
-                                "description": "Get chunks related to specified chunk",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_id": {"type": "string", "description": "Source chunk identifier"},
-                                        "max_depth": {"type": "integer", "default": 2, "description": "Maximum relationship depth"},
-                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
-                                    },
-                                    "required": ["chunk_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_session_primer",
-                                "description": "Generate lightweight context for session continuity",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "last_session_data": {"type": "string", "description": "Previous session data (optional)"}
-                                    },
-                                    "required": []
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__track_access",
-                                "description": "Update access analytics for optimization",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
-                                        "query_context": {"type": "string", "default": "", "description": "Query context (optional)"}
-                                    },
-                                    "required": ["chunk_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_hot_contexts",
-                                "description": "Get frequently accessed chunks prioritized by usage patterns",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "model_type": {"type": "string", "default": "sonnet", "description": "Model optimization"},
-                                        "limit": {"type": "integer", "default": 20, "description": "Maximum results"}
-                                    },
-                                    "required": []
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__update_chunk",
-                                "description": "Buffer chunk modifications for review",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_id": {"type": "string", "description": "Chunk identifier"},
-                                        "new_content": {"type": "string", "description": "Updated content"},
-                                        "session_id": {"type": "string", "description": "Session identifier"}
-                                    },
-                                    "required": ["chunk_id", "new_content", "session_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__create_chunk",
-                                "description": "Buffer new knowledge creation with realm targeting and embedding generation",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "content": {"type": "string", "description": "Chunk content"},
-                                        "source_document": {"type": "string", "description": "Source document"},
-                                        "section_path": {"type": "string", "description": "Section path"},
-                                        "session_id": {"type": "string", "description": "Session identifier"},
-                                        "target_realm": {"type": "string", "description": "Target realm (optional, defaults to PROJECT)"}
-                                    },
-                                    "required": ["content", "source_document", "section_path", "session_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__add_relationship",
-                                "description": "Create cross-references between chunks",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_id_1": {"type": "string", "description": "Source chunk identifier"},
-                                        "chunk_id_2": {"type": "string", "description": "Target chunk identifier"},
-                                        "relationship_type": {"type": "string", "description": "Relationship type"},
-                                        "session_id": {"type": "string", "description": "Session identifier"}
-                                    },
-                                    "required": ["chunk_id_1", "chunk_id_2", "relationship_type", "session_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_pending_changes",
-                                "description": "Get pending changes with smart highlighting",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "session_id": {"type": "string", "description": "Session identifier"}
-                                    },
-                                    "required": ["session_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__commit_session_changes",
-                                "description": "Commit approved changes and track contributions",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "session_id": {"type": "string", "description": "Session identifier"},
-                                        "approved_changes": {"type": "array", "items": {"type": "string"}, "description": "List of approved change IDs"}
-                                    },
-                                    "required": ["session_id", "approved_changes"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__search_chunks_semantic",
-                                "description": "Pure semantic search across Global + Project realms",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "query": {"type": "string", "description": "Search query"},
-                                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
-                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
-                                    },
-                                    "required": ["query"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__search_chunks_by_similarity",
-                                "description": "Find chunks similar to a reference chunk using embeddings",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "reference_chunk_id": {"type": "string", "description": "Reference chunk identifier"},
-                                        "limit": {"type": "integer", "default": 10, "description": "Maximum results"},
-                                        "threshold": {"type": "number", "default": 0.7, "description": "Minimum similarity threshold"},
-                                        "realm_id": {"type": "string", "description": "Target realm identifier (optional, defaults to server realm)"}
-                                    },
-                                    "required": ["reference_chunk_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__batch_generate_embeddings",
-                                "description": "Generate embeddings for existing chunks in batch",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs (optional)"},
-                                        "realm_id": {"type": "string", "description": "Realm ID to process (optional)"}
-                                    },
-                                    "required": []
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__create_promotion_request",
-                                "description": "Create a promotion request to move knowledge between realms",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "source_chunk_id": {"type": "string", "description": "Source chunk identifier"},
-                                        "target_realm_id": {"type": "string", "description": "Target realm identifier"},
-                                        "promotion_type": {"type": "string", "enum": ["copy", "move", "reference"], "default": "copy", "description": "Type of promotion"},
-                                        "justification": {"type": "string", "description": "Justification for promotion"},
-                                        "business_impact": {"type": "string", "enum": ["low", "medium", "high", "critical"], "default": "medium", "description": "Business impact level"},
-                                        "requested_by": {"type": "string", "description": "User requesting promotion"},
-                                        "session_id": {"type": "string", "description": "Session identifier"}
-                                    },
-                                    "required": ["source_chunk_id", "target_realm_id", "justification", "requested_by", "session_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_promotion_requests",
-                                "description": "Get promotion requests with optional filtering",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "status": {"type": "string", "enum": ["pending", "approved", "rejected", "processing", "completed"], "description": "Filter by status (optional)"},
-                                        "user_id": {"type": "string", "description": "Filter by user (optional)"},
-                                        "limit": {"type": "integer", "default": 50, "description": "Maximum results"}
-                                    },
-                                    "required": []
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__approve_promotion_request",
-                                "description": "Approve a pending promotion request",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
-                                        "reviewed_by": {"type": "string", "description": "User approving the request"},
-                                        "review_notes": {"type": "string", "description": "Review notes (optional)"}
-                                    },
-                                    "required": ["promotion_id", "reviewed_by"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__reject_promotion_request",
-                                "description": "Reject a pending promotion request",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"},
-                                        "reviewed_by": {"type": "string", "description": "User rejecting the request"},
-                                        "review_notes": {"type": "string", "description": "Reason for rejection"}
-                                    },
-                                    "required": ["promotion_id", "reviewed_by", "review_notes"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_promotion_impact",
-                                "description": "Get impact analysis for a promotion request",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "promotion_id": {"type": "string", "description": "Promotion request identifier"}
-                                    },
-                                    "required": ["promotion_id"]
-                                }
-                            },
-                            {
-                                "name": "mcp__megamind__get_promotion_queue_summary",
-                                "description": "Get summary of promotion queue status",
-                                "inputSchema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "realm_id": {"type": "string", "description": "Filter by realm (optional)"}
-                                    },
-                                    "required": []
-                                }
-                            }
-                        ]
+                        "tools": self.get_tools_list()
                     }
                 }
             
