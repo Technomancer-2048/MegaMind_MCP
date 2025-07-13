@@ -49,15 +49,14 @@
         "TEXTSMITH_MAX_FILE_SIZE": "41943040"
       }
     },
-	"megamind-context-db": {
-      "_description": "MegaMind Context Database - Secure STDIO-HTTP Bridge with Realm Protection",
-      "_security": "GLOBAL realm access blocked, PROJECT-only operations enforced",
+    "megamind-context-db": {
       "command": "python3",
       "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
       "env": {
         "MEGAMIND_PROJECT_REALM": "MegaMind_MCP", 
         "MEGAMIND_PROJECT_NAME": "MegaMind Context Database",
-        "MEGAMIND_DEFAULT_TARGET": "PROJECT"
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+        "PYTHONUNBUFFERED": "1"
       }
     }
   }
