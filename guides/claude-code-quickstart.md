@@ -1,15 +1,16 @@
 # MegaMind MCP Quick Start Guide for Claude Code
 
-This guide helps you set up and configure the MegaMind Context Database MCP server for use with Claude Code (claude.ai/code).
+This guide helps you set up and configure the MegaMind Context Database MCP server for use with Claude Code (claude.ai/code) using the **HTTP transport method** for optimal performance.
 
 ## 🎯 What You'll Get
 
 After following this guide, you'll have:
-- **20 MCP functions** for intelligent context management
+- **20 MCP functions** for intelligent context management via HTTP transport
+- **Dynamic realm management** with HTTP headers for multi-project support
 - **Semantic search** capabilities across your knowledge base
 - **Knowledge promotion system** for cross-project knowledge sharing
 - **70-80% reduction** in context token consumption
-- **Sub-second retrieval** for development workflows
+- **Sub-second retrieval** with persistent HTTP connections
 
 ## 📋 Prerequisites
 
@@ -107,8 +108,42 @@ The MCP configuration file should be at:
 - **Linux**: `~/.config/claude-code/mcp.json`  
 - **Windows**: `%APPDATA%\claude-code\mcp.json`
 
-### 3.2 Configure MCP Connection
+### 3.2 Configure MCP Connection (HTTP Transport - Recommended)
+
+**HTTP transport is the recommended method** as it provides better performance, persistent connections, and dynamic realm management.
+
 Edit your `mcp.json` file:
+
+```json
+{
+  "servers": {
+    "megamind-context-db": {
+      "command": "curl",
+      "args": [
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", "X-MCP-Realm-ID: YOUR_PROJECT_NAME",
+        "-H", "X-MCP-Project-Name: Your Project Display Name",
+        "--data-raw", "{}",
+        "http://localhost:8080/mcp/jsonrpc"
+      ],
+      "env": {
+        "MEGAMIND_PROJECT_REALM": "YOUR_PROJECT_NAME",
+        "MEGAMIND_DEFAULT_TARGET": "PROJECT"
+      }
+    }
+  }
+}
+```
+
+**Key Configuration Notes**:
+- `X-MCP-Realm-ID` header: Sets your project realm (e.g., "ECOMMERCE_API", "MOBILE_APP")
+- `X-MCP-Project-Name` header: Human-readable project name for display
+- HTTP endpoint: `http://localhost:8080/mcp/jsonrpc` (persistent server)
+- Environment variables: Provide fallback configuration
+
+### 3.3 Alternative: Stdio Transport (Legacy)
+For stdio-based connection (slower startup but simpler):
 
 ```json
 {
@@ -129,31 +164,27 @@ Edit your `mcp.json` file:
 }
 ```
 
-### 3.3 Alternative: HTTP Transport (Advanced)
-For HTTP-based connection (requires additional setup):
-
-```json
-{
-  "servers": {
-    "megamind-context-db": {
-      "command": "curl",
-      "args": [
-        "-X", "POST",
-        "-H", "Content-Type: application/json",
-        "--data-raw", "{}",
-        "http://localhost:8080/mcp/jsonrpc"
-      ]
-    }
-  }
-}
-```
-
 ## 🧪 Step 4: Test the Integration
 
-### 4.1 Restart Claude Code
+### 4.1 Verify HTTP Transport
+First, test the HTTP endpoint directly:
+
+```bash
+# Test basic connectivity
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-Realm-ID: YOUR_PROJECT_NAME" \
+  -H "X-MCP-Project-Name: Your Project Display Name" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  http://localhost:8080/mcp/jsonrpc
+
+# Expected response: List of 20 MCP functions
+```
+
+### 4.2 Restart Claude Code
 Close and restart Claude Code to load the new MCP configuration.
 
-### 4.2 Verify MCP Functions
+### 4.3 Verify MCP Functions
 In a Claude Code session, test the connection:
 
 1. **Basic Search Test**:
@@ -253,16 +284,50 @@ Track access to chunk "chunk_45678" with context "debugging API issues"
 
 ## 🎛️ Customization Options
 
-### 6.1 Realm Configuration
-Customize your realm setup in `.env`:
+### 6.1 Realm Configuration (HTTP Headers Method)
+
+**Primary Method**: Configure realms via HTTP headers in `mcp.json`:
+
+```json
+{
+  "servers": {
+    "ecommerce-project": {
+      "command": "curl",
+      "args": [
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", "X-MCP-Realm-ID: ECOMMERCE_API",
+        "-H", "X-MCP-Project-Name: E-Commerce API Platform",
+        "--data-raw", "{}",
+        "http://localhost:8080/mcp/jsonrpc"
+      ]
+    },
+    "mobile-project": {
+      "command": "curl", 
+      "args": [
+        "-X", "POST",
+        "-H", "Content-Type: application/json",
+        "-H", "X-MCP-Realm-ID: MOBILE_APP",
+        "-H", "X-MCP-Project-Name: Mobile Application",
+        "--data-raw", "{}",
+        "http://localhost:8080/mcp/jsonrpc"
+      ]
+    }
+  }
+}
+```
+
+**Benefits of HTTP Header Method**:
+- **Dynamic realm switching**: Different realms per MCP server instance
+- **Runtime realm selection**: No container restart required
+- **Multi-project support**: Multiple configured realms in Claude Code
+- **Context isolation**: Each project gets its own realm context
+
+**Fallback Method**: Environment variables in `.env`:
 ```bash
-# Multi-project setup
+# Default realm for stdio transport
 MEGAMIND_PROJECT_REALM=ECOMMERCE_API
 MEGAMIND_PROJECT_NAME="E-Commerce API Platform"
-
-# or
-MEGAMIND_PROJECT_REALM=MOBILE_APP  
-MEGAMIND_PROJECT_NAME="Mobile Application"
 ```
 
 ### 6.2 Performance Tuning
@@ -291,7 +356,26 @@ SEMANTIC_SEARCH_THRESHOLD=0.6
 
 ### Common Issues
 
-**1. "MCP server not responding"**
+**1. "HTTP Transport Connection Failed"**
+```bash
+# Test HTTP endpoint directly
+curl -f http://localhost:8080/mcp/health
+
+# Check if port is accessible
+netstat -tlnp | grep :8080
+
+# Verify container port mapping
+docker port megamind-mcp-server-http
+
+# Test with full JSON-RPC request
+curl -X POST \
+  -H "Content-Type: application/json" \
+  -H "X-MCP-Realm-ID: TEST" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' \
+  http://localhost:8080/mcp/jsonrpc
+```
+
+**2. "MCP server not responding"**
 ```bash
 # Check container status
 docker compose ps
@@ -408,6 +492,20 @@ If you encounter issues:
 
 ---
 
-**🎉 Congratulations!** You now have a fully functional MegaMind MCP server integrated with Claude Code, providing intelligent context management and semantic search capabilities for your development workflows.
+**🎉 Congratulations!** You now have a fully functional MegaMind MCP server with **HTTP transport** integrated with Claude Code, providing:
 
-For advanced configuration and technical details, see the complete documentation in `CLAUDE.md`.
+### ✅ HTTP Transport Benefits Achieved
+- **Persistent connections**: No 30-90 second startup delay per session
+- **Dynamic realm management**: Switch between projects using HTTP headers
+- **Better performance**: Sub-second response times with connection pooling
+- **Multi-project support**: Configure multiple realms in Claude Code simultaneously
+- **Real-time monitoring**: Access health endpoints and server status
+- **Scalable architecture**: Handle concurrent sessions efficiently
+
+### 🚀 Next Steps with HTTP Transport
+1. **Configure multiple projects**: Add different realm headers for each project
+2. **Monitor performance**: Use `/mcp/status` endpoint for metrics
+3. **Dynamic realm switching**: Change realm headers without restart
+4. **Advanced features**: Explore promotion queue and analytics endpoints
+
+For advanced configuration, HTTP endpoint documentation, and technical details, see the complete documentation in `CLAUDE.md`.
