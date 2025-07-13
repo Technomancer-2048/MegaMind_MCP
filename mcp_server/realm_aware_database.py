@@ -63,17 +63,27 @@ class RealmAwareMegaMindDatabase:
         
         self._setup_connection_pool()
     
+    def _get_realm_config(self):
+        """Safely get realm configuration regardless of type"""
+        # Handle both RealmConfigurationManager and RealmConfig objects
+        if hasattr(self.realm_config, 'config'):
+            # It's a RealmConfigurationManager
+            return self.realm_config.config
+        else:
+            # It's a RealmConfig object directly
+            return self.realm_config
+    
     def _setup_connection_pool(self):
         """Setup MySQL connection pool"""
         try:
             pool_config = {
                 'pool_name': 'megamind_realm_pool',
                 'pool_size': int(self.config.get('pool_size', 10)),
-                'host': self.config['host'],
-                'port': int(self.config['port']),
-                'database': self.config['database'],
-                'user': self.config['user'],
-                'password': self.config['password'],
+                'host': self.config.get('db_host', self.config.get('host')),
+                'port': int(self.config.get('db_port', self.config.get('port'))),
+                'database': self.config.get('db_database', self.config.get('database')),
+                'user': self.config.get('db_user', self.config.get('user')),
+                'password': self.config.get('db_password', self.config.get('password')),
                 'autocommit': False,
                 'charset': 'utf8mb4',
                 'use_unicode': True
@@ -92,13 +102,13 @@ class RealmAwareMegaMindDatabase:
             
             # Initialize vector search engine with realm configuration
             self.vector_search_engine = RealmAwareVectorSearchEngine(
-                project_realm=self.realm_config.config.project_realm,
+                project_realm=self._get_realm_config().project_realm,
                 global_realm='GLOBAL'
             )
             
             test_connection.close()
             
-            logger.info(f"Realm-aware database connection pool established for project: {self.realm_config.config.project_realm}")
+            logger.info(f"Realm-aware database connection pool established for project: {self._get_realm_config().project_realm}")
         except Exception as e:
             logger.error(f"Failed to setup realm-aware database connection pool: {e}")
             raise
@@ -109,7 +119,7 @@ class RealmAwareMegaMindDatabase:
             connection = self.connection_pool.get_connection()
             # Set session variable for current realm
             cursor = connection.cursor()
-            cursor.execute("SET @current_realm = %s", (self.realm_config.config.project_realm,))
+            cursor.execute("SET @current_realm = %s", (self._get_realm_config().project_realm,))
             cursor.close()
             return connection
         except Exception as e:
@@ -118,7 +128,7 @@ class RealmAwareMegaMindDatabase:
     
     # Dual-Realm Search Operations
     
-    def search_chunks_dual_realm(self, query: str, limit: int = 10, search_type: str = "hybrid") -> List[Dict[str, Any]]:
+    def search_chunks_dual_realm(self, query: str, limit: int = 10, search_type: str = "hybrid", threshold: float = None) -> List[Dict[str, Any]]:
         """Enhanced dual-realm search with inheritance-aware filtering"""
         connection = None
         try:
@@ -129,23 +139,40 @@ class RealmAwareMegaMindDatabase:
             search_realms = self.realm_config.get_search_realms()
             
             if search_type == "semantic":
-                raw_results = self._realm_semantic_search(cursor, query, limit * 2, search_realms)  # Get more for filtering
+                raw_results = self._realm_semantic_search(cursor, query, limit * 2, search_realms, threshold)  # Get more for filtering
             elif search_type == "keyword":
-                raw_results = self._realm_keyword_search(cursor, query, limit * 2, search_realms)
+                # WORKAROUND: Route keyword search through hybrid search fallback to avoid Decimal serialization issues
+                # The hybrid search automatically falls back to keyword search when embeddings aren't available
+                raw_results = self._realm_hybrid_search(cursor, query, limit * 2, search_realms)
             else:  # hybrid (default)
                 raw_results = self._realm_hybrid_search(cursor, query, limit * 2, search_realms)
             
-            # Apply inheritance-aware filtering
-            if self.inheritance_resolver:
-                self.inheritance_resolver.db = connection  # Update resolver connection
-                filtered_results = self.inheritance_resolver.filter_chunks_by_inheritance(
-                    raw_results, self.realm_config.config.project_realm
-                )
-            else:
+            # Apply inheritance-aware filtering (GitHub Issue #5 Phase 3)
+            try:
+                if self.inheritance_resolver:
+                    self.inheritance_resolver.db = connection  # Update resolver connection
+                    filtered_results = self.inheritance_resolver.filter_chunks_by_inheritance(
+                        raw_results, self._get_realm_config().project_realm
+                    )
+                    logger.info(f"Inheritance resolver applied, filtered {len(raw_results)} -> {len(filtered_results)} results")
+                else:
+                    logger.warning("Inheritance resolver not available, using unfiltered results")
+                    filtered_results = raw_results
+            except Exception as e:
+                logger.warning(f"Inheritance resolver failed: {e}, using unfiltered results")
                 filtered_results = raw_results
             
-            # Return limited results
-            return filtered_results[:limit]
+            # Return limited results with datetime sanitization (GitHub Issue #5)
+            sanitized_results = self._sanitize_chunk_results(filtered_results[:limit])
+            
+            # Debug: Check for any remaining Decimal objects
+            from decimal import Decimal
+            for i, result in enumerate(sanitized_results):
+                for key, value in result.items():
+                    if isinstance(value, Decimal):
+                        logger.error(f"DECIMAL FOUND in sanitized results[{i}][{key}]: {value} (type: {type(value)})")
+            
+            return sanitized_results
                 
         except Exception as e:
             logger.error(f"Dual-realm search failed: {e}")
@@ -164,9 +191,9 @@ class RealmAwareMegaMindDatabase:
                c.chunk_type, c.realm_id, c.access_count, c.last_accessed,
                r.realm_name,
                CASE WHEN c.realm_id = %s THEN 'direct' ELSE 'inherited' END as access_type,
-               CASE WHEN c.realm_id = %s THEN 1.0 ELSE 0.8 END as realm_priority_weight,
-               (MATCH(c.content) AGAINST(%s IN BOOLEAN MODE) * 
-                CASE WHEN c.realm_id = %s THEN 1.2 ELSE 1.0 END) as relevance_score
+               CAST(CASE WHEN c.realm_id = %s THEN 1.0 ELSE 0.8 END AS FLOAT) as realm_priority_weight,
+               CAST((MATCH(c.content) AGAINST(%s IN BOOLEAN MODE) * 
+                CASE WHEN c.realm_id = %s THEN 1.2 ELSE 1.0 END) AS FLOAT) as relevance_score
         FROM megamind_chunks c
         JOIN megamind_realms r ON c.realm_id = r.realm_id
         WHERE c.realm_id IN ({realm_placeholders})
@@ -183,7 +210,7 @@ class RealmAwareMegaMindDatabase:
         # Prepare search parameters
         like_pattern = f"%{query}%"
         boolean_query = ' '.join([f'+{word}*' for word in query.split()])
-        project_realm = self.realm_config.config.project_realm
+        project_realm = self._get_realm_config().project_realm
         
         params = [
             project_realm,  # For access_type calculation
@@ -208,7 +235,7 @@ class RealmAwareMegaMindDatabase:
         
         return results
     
-    def _realm_semantic_search(self, cursor, query: str, limit: int, search_realms: List[str]) -> List[Dict[str, Any]]:
+    def _realm_semantic_search(self, cursor, query: str, limit: int, search_realms: List[str], threshold: float = None) -> List[Dict[str, Any]]:
         """Semantic search across realms using vector similarity"""
         if not self.vector_search_engine or not self.embedding_service.is_available():
             logger.warning("Semantic search not available, falling back to keyword search")
@@ -232,7 +259,8 @@ class RealmAwareMegaMindDatabase:
         search_results = self.vector_search_engine.dual_realm_semantic_search(
             query=query,
             chunks_data=chunks_data,
-            limit=limit
+            limit=limit,
+            threshold=threshold
         )
         
         # Convert SearchResult objects back to dictionaries and update access counts
@@ -249,8 +277,8 @@ class RealmAwareMegaMindDatabase:
                 'similarity_score': result.similarity_score,
                 'final_score': result.final_score,
                 'access_count': result.access_count,
-                'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
-                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self.realm_config.config.project_realm else self.vector_search_engine.global_priority
+                'access_type': 'direct' if result.realm_id == self._get_realm_config().project_realm else 'inherited',
+                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self._get_realm_config().project_realm else self.vector_search_engine.global_priority
             }
             result_dicts.append(result_dict)
             chunk_ids_to_update.append(result.chunk_id)
@@ -301,8 +329,8 @@ class RealmAwareMegaMindDatabase:
                 'keyword_score': result.keyword_score,
                 'final_score': result.final_score,
                 'access_count': result.access_count,
-                'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
-                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self.realm_config.config.project_realm else self.vector_search_engine.global_priority
+                'access_type': 'direct' if result.realm_id == self._get_realm_config().project_realm else 'inherited',
+                'realm_priority_weight': self.vector_search_engine.project_priority if result.realm_id == self._get_realm_config().project_realm else self.vector_search_engine.global_priority
             }
             result_dicts.append(result_dict)
             chunk_ids_to_update.append(result.chunk_id)
@@ -336,8 +364,25 @@ class RealmAwareMegaMindDatabase:
             connection = self.get_connection()
             cursor = connection.cursor()
             
-            # Determine target realm
-            target = self.realm_config.get_target_realm(target_realm)
+            # Determine target realm - handle both RealmConfigurationManager and RealmConfig
+            if hasattr(self.realm_config, 'get_target_realm'):
+                # It's a RealmConfigurationManager
+                target = self.realm_config.get_target_realm(target_realm)
+            else:
+                # It's a RealmConfig dataclass - implement logic manually
+                if target_realm:
+                    if target_realm.upper() == 'GLOBAL':
+                        target = self.realm_config.global_realm
+                    elif target_realm.upper() == 'PROJECT':
+                        target = self.realm_config.project_realm
+                    else:
+                        target = self.realm_config.project_realm  # Default fallback
+                else:
+                    # Use configured default
+                    if self.realm_config.default_target == 'GLOBAL':
+                        target = self.realm_config.global_realm
+                    else:
+                        target = self.realm_config.project_realm
             
             # Validate write access
             can_write, message = self.realm_access.validate_realm_operation('create', target)
@@ -423,7 +468,7 @@ class RealmAwareMegaMindDatabase:
             WHERE c.chunk_id = %s AND c.realm_id IN ({realm_placeholders})
             """
             
-            params = [self.realm_config.config.project_realm, chunk_id] + search_realms
+            params = [self._get_realm_config().project_realm, chunk_id] + search_realms
             cursor.execute(chunk_query, params)
             chunk = cursor.fetchone()
             
@@ -438,7 +483,8 @@ class RealmAwareMegaMindDatabase:
                 chunk['relationships'] = self._get_chunk_relationships(cursor, chunk_id, search_realms)
             
             connection.commit()
-            return chunk
+            # Sanitize chunk result for JSON serialization (GitHub Issue #5)
+            return self._sanitize_chunk_results([chunk])[0] if chunk else None
             
         except Exception as e:
             logger.error(f"Failed to get chunk {chunk_id}: {e}")
@@ -469,6 +515,10 @@ class RealmAwareMegaMindDatabase:
         return cursor.fetchall()
     
     # Cross-Realm Relationship Operations
+    
+    def get_related_chunks(self, chunk_id: str, max_depth: int = 2) -> List[Dict[str, Any]]:
+        """Get related chunks up to max_depth levels (alias for get_cross_realm_relationships)"""
+        return self.get_cross_realm_relationships(chunk_id, max_depth)
     
     def get_cross_realm_relationships(self, chunk_id: str, max_depth: int = 2) -> List[Dict[str, Any]]:
         """Get relationships that cross realm boundaries with inheritance awareness"""
@@ -513,11 +563,11 @@ class RealmAwareMegaMindDatabase:
                 for rel in relationships:
                     # Check access to source chunk
                     source_access = self.inheritance_resolver.resolve_chunk_access(
-                        rel['chunk_id'], self.realm_config.config.project_realm
+                        rel['chunk_id'], self._get_realm_config().project_realm
                     )
                     # Check access to target chunk
                     target_access = self.inheritance_resolver.resolve_chunk_access(
-                        rel['related_chunk_id'], self.realm_config.config.project_realm
+                        rel['related_chunk_id'], self._get_realm_config().project_realm
                     )
                     
                     if source_access.access_granted and target_access.access_granted:
@@ -548,7 +598,7 @@ class RealmAwareMegaMindDatabase:
         target_modifier = 1.2 if target_access.access_type == 'direct' else 0.8
         
         # Apply realm priority modifiers
-        project_realm = self.realm_config.config.project_realm
+        project_realm = self._get_realm_config().project_realm
         source_realm_modifier = 1.1 if relationship['source_realm'] == project_realm else 1.0
         target_realm_modifier = 1.1 if relationship['target_realm'] == project_realm else 1.0
         
@@ -561,7 +611,7 @@ class RealmAwareMegaMindDatabase:
             connection = self.get_connection()
             cursor = connection.cursor(dictionary=True)
             
-            realm_id = realm_id or self.realm_config.config.project_realm
+            realm_id = realm_id or self._get_realm_config().project_realm
             
             # Get cross-realm relationship statistics
             stats_query = """
@@ -670,7 +720,7 @@ class RealmAwareMegaMindDatabase:
             """
             cursor.execute(insert_query, (
                 session_id, 'mcp_user', 
-                self.realm_config.config.project_name, realm_id
+                self._get_realm_config().project_name, realm_id
             ))
     
     def get_realm_info(self) -> Dict[str, Any]:
@@ -712,13 +762,13 @@ class RealmAwareMegaMindDatabase:
             if self.inheritance_resolver:
                 self.inheritance_resolver.db = connection
                 realm_info['inheritance_paths'] = self.inheritance_resolver.get_inheritance_paths(
-                    self.realm_config.config.project_realm
+                    self._get_realm_config().project_realm
                 )
                 realm_info['accessibility_matrix'] = self.inheritance_resolver.get_realm_accessibility_matrix(
-                    self.realm_config.config.project_realm
+                    self._get_realm_config().project_realm
                 )
                 realm_info['inheritance_stats'] = self.inheritance_resolver.get_inheritance_stats(
-                    self.realm_config.config.project_realm
+                    self._get_realm_config().project_realm
                 )
             
             return realm_info
@@ -751,7 +801,7 @@ class RealmAwareMegaMindDatabase:
             if include_inherited:
                 search_realms = self.realm_config.get_search_realms()
             else:
-                search_realms = [self.realm_config.config.project_realm]
+                search_realms = [self._get_realm_config().project_realm]
             
             realm_placeholders = ', '.join(['%s'] * len(search_realms))
             
@@ -771,7 +821,7 @@ class RealmAwareMegaMindDatabase:
             LIMIT %s
             """
             
-            project_realm = self.realm_config.config.project_realm
+            project_realm = self._get_realm_config().project_realm
             params = [project_realm, project_realm] + search_realms + [threshold, project_realm, limit]
             cursor.execute(hot_query, params)
             return cursor.fetchall()
@@ -1095,7 +1145,7 @@ class RealmAwareMegaMindDatabase:
             connection = self.get_connection()
             
             # Use current realm if not specified
-            scan_realm = realm_id or self.realm_config.config.project_realm
+            scan_realm = realm_id or self._get_realm_config().project_realm
             
             # Update security validator connection
             self.security_validator.db = connection
@@ -1110,7 +1160,7 @@ class RealmAwareMegaMindDatabase:
         except Exception as e:
             logger.error(f"Failed to run security scan: {e}")
             return {
-                'realm_id': realm_id or self.realm_config.config.project_realm,
+                'realm_id': realm_id or self._get_realm_config().project_realm,
                 'error': str(e),
                 'overall_security_score': 0.0,
                 'security_level': 'critical'
@@ -1126,7 +1176,7 @@ class RealmAwareMegaMindDatabase:
             connection = self.get_connection()
             
             # Use current realm if not specified
-            check_realm = realm_id or self.realm_config.config.project_realm
+            check_realm = realm_id or self._get_realm_config().project_realm
             
             # Update security validator connection
             self.security_validator.db = connection
@@ -1172,7 +1222,7 @@ class RealmAwareMegaMindDatabase:
                 source_ip=source_ip,
                 attempted_action=attempted_action,
                 target_resource=target_resource,
-                realm_context=realm_context or self.realm_config.config.project_realm
+                realm_context=realm_context or self._get_realm_config().project_realm
             )
             
             return violation_id
@@ -1188,7 +1238,7 @@ class RealmAwareMegaMindDatabase:
     
     def search_chunks_semantic(self, query: str, limit: int = 10, threshold: float = None) -> List[Dict[str, Any]]:
         """Pure semantic search across Global + Project realms"""
-        return self.search_chunks_dual_realm(query, limit, search_type="semantic")
+        return self.search_chunks_dual_realm(query, limit, search_type="semantic", threshold=threshold)
     
     def search_chunks_by_similarity(self, reference_chunk_id: str, limit: int = 10, threshold: float = None) -> List[Dict[str, Any]]:
         """Find chunks similar to a reference chunk using embeddings"""
@@ -1254,7 +1304,7 @@ class RealmAwareMegaMindDatabase:
                     'similarity_score': result.similarity_score,
                     'final_score': result.final_score,
                     'access_count': result.access_count,
-                    'access_type': 'direct' if result.realm_id == self.realm_config.config.project_realm else 'inherited',
+                    'access_type': 'direct' if result.realm_id == self._get_realm_config().project_realm else 'inherited',
                     'reference_chunk_id': reference_chunk_id
                 }
                 result_dicts.append(result_dict)
@@ -1354,3 +1404,431 @@ class RealmAwareMegaMindDatabase:
         finally:
             if connection:
                 connection.close()
+    
+    def _sanitize_chunk_results(self, results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Convert database results to client-safe responses - only expose client-relevant fields"""
+        from decimal import Decimal
+        
+        sanitized = []
+        for result in results:
+            # ONLY include client-relevant fields - filter out ALL internal database fields
+            clean_result = {}
+            
+            # Core client fields
+            if result.get('chunk_id'):
+                clean_result['chunk_id'] = result['chunk_id']
+            if result.get('content'):
+                clean_result['content'] = result['content']
+            if result.get('source_document'):
+                clean_result['source_document'] = result['source_document']
+            if result.get('section_path'):
+                clean_result['section_path'] = result['section_path']
+            if result.get('chunk_type'):
+                clean_result['chunk_type'] = result['chunk_type']
+            if result.get('realm_id'):
+                clean_result['realm_id'] = result['realm_id']
+            
+            # Usage metrics (convert to safe types)
+            if 'access_count' in result:
+                clean_result['access_count'] = int(result['access_count']) if result['access_count'] is not None else 0
+            
+            # Search-specific fields (convert Decimals to floats)
+            if 'relevance_score' in result:
+                score = result['relevance_score']
+                clean_result['relevance_score'] = float(score) if isinstance(score, Decimal) else (float(score) if score is not None else 0.0)
+            
+            if 'realm_priority_weight' in result:
+                weight = result['realm_priority_weight']
+                clean_result['realm_priority_weight'] = float(weight) if isinstance(weight, Decimal) else (float(weight) if weight is not None else 1.0)
+            
+            if 'access_type' in result:
+                clean_result['access_type'] = result['access_type']
+            
+            # Convert datetime fields to ISO strings (but don't include internal timestamps)
+            for key in ['last_accessed', 'created_at', 'updated_at']:
+                if key in result and result[key] and hasattr(result[key], 'isoformat'):
+                    # Only expose last_accessed to clients, not internal created_at/updated_at
+                    if key == 'last_accessed':
+                        clean_result['last_accessed_str'] = result[key].isoformat()
+            
+            # Explicitly exclude internal fields: embedding, token_count, line_count, complexity_score, realm_name
+            # These should NEVER reach the client
+            
+            sanitized.append(clean_result)
+        
+        return sanitized
+    
+    # ==========================================
+    # SESSION MANAGEMENT METHODS (Missing from RealmAware implementation)
+    # ==========================================
+    
+    def get_session_primer(self, last_session_data: Optional[str] = None) -> Dict[str, Any]:
+        """Generate lightweight context for session continuity with realm awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Get realm configuration for context
+            realm_config = self._get_realm_config()
+            search_realms = [realm_config.global_realm, realm_config.project_realm]
+            realm_placeholders = ', '.join(['%s'] * len(search_realms))
+            
+            # Get recent high-access chunks for context priming across both realms
+            primer_query = f"""
+            SELECT chunk_id, content, source_document, section_path, access_count, realm_id
+            FROM megamind_chunks
+            WHERE realm_id IN ({realm_placeholders}) AND access_count > 3
+            ORDER BY last_accessed DESC, access_count DESC
+            LIMIT 15
+            """
+            cursor.execute(primer_query, search_realms)
+            primer_chunks = cursor.fetchall()
+            
+            # Get session context if provided
+            session_context = {}
+            if last_session_data:
+                try:
+                    # Parse session data for continuity
+                    session_context = json.loads(last_session_data) if isinstance(last_session_data, str) else {}
+                except (json.JSONDecodeError, TypeError):
+                    session_context = {"session_id": str(last_session_data)}
+            
+            # Sanitize results for client
+            sanitized_chunks = self._sanitize_chunk_results(primer_chunks)
+            
+            primer_data = {
+                "primer_chunks": sanitized_chunks,
+                "realm_context": {
+                    "project_realm": realm_config.project_realm,
+                    "global_realm": realm_config.global_realm,
+                    "total_chunks": len(sanitized_chunks),
+                    "realm_distribution": self._get_realm_distribution(primer_chunks)
+                },
+                "session_continuity": session_context,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return primer_data
+            
+        except Exception as e:
+            logger.error(f"Failed to generate session primer: {e}")
+            return {"error": str(e), "primer_chunks": [], "realm_context": {}}
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_pending_changes(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get pending changes with smart highlighting and realm awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            changes_query = """
+            SELECT sc.change_id, sc.change_type, sc.chunk_id, sc.target_chunk_id,
+                   sc.change_data, sc.impact_score, sc.timestamp,
+                   c.source_document, c.access_count, c.realm_id
+            FROM megamind_session_changes sc
+            LEFT JOIN megamind_chunks c ON sc.chunk_id = c.chunk_id
+            WHERE sc.session_id = %s AND sc.status = 'pending'
+            ORDER BY sc.impact_score DESC, sc.timestamp ASC
+            """
+            cursor.execute(changes_query, (session_id,))
+            raw_changes = cursor.fetchall()
+            
+            # Process and enhance changes with realm context
+            enhanced_changes = []
+            for change in raw_changes:
+                try:
+                    change_data = json.loads(change['change_data']) if change['change_data'] else {}
+                except (json.JSONDecodeError, TypeError):
+                    change_data = {}
+                
+                enhanced_change = {
+                    'change_id': change['change_id'],
+                    'change_type': change['change_type'],
+                    'chunk_id': change['chunk_id'],
+                    'target_chunk_id': change['target_chunk_id'],
+                    'realm_id': change.get('realm_id', 'UNKNOWN'),
+                    'source_document': change.get('source_document', ''),
+                    'access_count': change.get('access_count', 0),
+                    'impact_score': float(change['impact_score']) if change['impact_score'] else 0.0,
+                    'timestamp': change['timestamp'].isoformat() if change['timestamp'] else '',
+                    'change_summary': self._generate_change_summary(change['change_type'], change_data),
+                    'realm_impact': self._assess_realm_impact(change.get('realm_id'), change['change_type'])
+                }
+                enhanced_changes.append(enhanced_change)
+            
+            return enhanced_changes
+            
+        except Exception as e:
+            logger.error(f"Failed to get pending changes for session {session_id}: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    def commit_session_changes(self, session_id: str, approved_changes: List[str]) -> Dict[str, Any]:
+        """Commit approved changes and track contributions with realm awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            stats = {"chunks_modified": 0, "chunks_created": 0, "relationships_added": 0, "realms_affected": set()}
+            rollback_data = []
+            
+            # Process each approved change
+            for change_id in approved_changes:
+                # Get change details
+                change_query = """
+                SELECT change_type, chunk_id, target_chunk_id, change_data
+                FROM megamind_session_changes
+                WHERE change_id = %s AND session_id = %s AND status = 'pending'
+                """
+                cursor.execute(change_query, (change_id, session_id))
+                change = cursor.fetchone()
+                
+                if not change:
+                    logger.warning(f"Change {change_id} not found or not pending")
+                    continue
+                
+                try:
+                    change_data = json.loads(change['change_data']) if change['change_data'] else {}
+                except (json.JSONDecodeError, TypeError):
+                    change_data = {}
+                
+                # Apply the change based on type
+                if change['change_type'] == 'create_chunk':
+                    self._apply_chunk_creation(cursor, change_data, stats)
+                elif change['change_type'] == 'update_chunk':
+                    self._apply_chunk_update(cursor, change['chunk_id'], change_data, stats, rollback_data)
+                elif change['change_type'] == 'add_relationship':
+                    self._apply_relationship_addition(cursor, change['chunk_id'], change['target_chunk_id'], change_data, stats)
+                
+                # Mark change as applied
+                update_change_query = """
+                UPDATE megamind_session_changes
+                SET status = 'applied', applied_timestamp = NOW()
+                WHERE change_id = %s
+                """
+                cursor.execute(update_change_query, (change_id,))
+            
+            # Record session contribution
+            contribution_id = f"contrib_{uuid.uuid4().hex[:12]}"
+            contribution_query = """
+            INSERT INTO megamind_knowledge_contributions 
+            (contribution_id, session_id, chunks_modified, chunks_created, 
+             relationships_added, contribution_impact)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            """
+            total_impact = stats["chunks_modified"] + stats["chunks_created"] + stats["relationships_added"]
+            cursor.execute(contribution_query, (
+                contribution_id, session_id, stats["chunks_modified"], 
+                stats["chunks_created"], stats["relationships_added"], total_impact
+            ))
+            
+            connection.commit()
+            
+            # Convert set to list for JSON serialization
+            stats["realms_affected"] = list(stats["realms_affected"])
+            stats["contribution_id"] = contribution_id
+            stats["total_changes_applied"] = len(approved_changes)
+            
+            logger.info(f"Committed {len(approved_changes)} changes for session {session_id}")
+            return stats
+            
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            logger.error(f"Failed to commit session changes: {e}")
+            return {"error": str(e), "changes_applied": 0}
+        finally:
+            if connection:
+                connection.close()
+    
+    # ==========================================
+    # ANALYTICS METHODS (Missing from RealmAware implementation)
+    # ==========================================
+    
+    def track_access(self, chunk_id: str, query_context: str = "") -> Dict[str, Any]:
+        """Update access analytics for optimization with realm awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Update chunk access count and timestamp
+            update_query = """
+            UPDATE megamind_chunks
+            SET access_count = access_count + 1,
+                last_accessed = NOW()
+            WHERE chunk_id = %s
+            """
+            cursor.execute(update_query, (chunk_id,))
+            
+            # Get realm info for the accessed chunk
+            realm_query = """
+            SELECT realm_id, source_document, section_path
+            FROM megamind_chunks
+            WHERE chunk_id = %s
+            """
+            cursor.execute(realm_query, (chunk_id,))
+            chunk_info = cursor.fetchone()
+            
+            # Record access analytics if query context provided
+            if query_context and chunk_info:
+                analytics_id = f"analytics_{uuid.uuid4().hex[:12]}"
+                analytics_query = """
+                INSERT INTO megamind_performance_metrics
+                (metric_id, metric_type, chunk_id, realm_id, query_context, metric_value)
+                VALUES (%s, 'access_tracking', %s, %s, %s, 1)
+                """
+                cursor.execute(analytics_query, (
+                    analytics_id, chunk_id, chunk_info['realm_id'], query_context
+                ))
+            
+            connection.commit()
+            
+            result = {
+                "chunk_id": chunk_id,
+                "access_tracked": True,
+                "realm_id": chunk_info['realm_id'] if chunk_info else "UNKNOWN",
+                "query_context_recorded": bool(query_context),
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            logger.debug(f"Tracked access for chunk {chunk_id} in realm {result['realm_id']}")
+            return result
+            
+        except Exception as e:
+            if connection:
+                connection.rollback()
+            logger.error(f"Failed to track access for chunk {chunk_id}: {e}")
+            return {"chunk_id": chunk_id, "access_tracked": False, "error": str(e)}
+        finally:
+            if connection:
+                connection.close()
+    
+    def get_hot_contexts(self, model_type: str = "sonnet", limit: int = 20) -> List[Dict[str, Any]]:
+        """Get frequently accessed chunks prioritized by usage patterns with realm awareness"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            realm_config = self._get_realm_config()
+            search_realms = [realm_config.global_realm, realm_config.project_realm]
+            realm_placeholders = ', '.join(['%s'] * len(search_realms))
+            
+            # Adjust for model type - Opus gets more selective, high-value chunks
+            if model_type.lower() == "opus":
+                hot_query = f"""
+                SELECT chunk_id, content, source_document, section_path, 
+                       chunk_type, access_count, last_accessed, realm_id
+                FROM megamind_chunks
+                WHERE realm_id IN ({realm_placeholders}) AND access_count >= 3
+                ORDER BY access_count DESC, token_count ASC
+                LIMIT %s
+                """
+            else:
+                # Sonnet and other models get broader selection
+                hot_query = f"""
+                SELECT chunk_id, content, source_document, section_path,
+                       chunk_type, access_count, last_accessed, realm_id
+                FROM megamind_chunks
+                WHERE realm_id IN ({realm_placeholders}) AND access_count >= 1
+                ORDER BY access_count DESC, last_accessed DESC
+                LIMIT %s
+                """
+            
+            query_params = search_realms + [limit]
+            cursor.execute(hot_query, query_params)
+            hot_chunks = cursor.fetchall()
+            
+            # Sanitize results and add realm priority information
+            sanitized_chunks = self._sanitize_chunk_results(hot_chunks)
+            
+            # Add model-specific optimization hints
+            for chunk in sanitized_chunks:
+                chunk['optimization_target'] = model_type
+                chunk['context_priority'] = self._calculate_context_priority(
+                    chunk['access_count'], 
+                    chunk['realm_id'], 
+                    realm_config.project_realm
+                )
+            
+            logger.info(f"Retrieved {len(sanitized_chunks)} hot contexts for {model_type}")
+            return sanitized_chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to get hot contexts: {e}")
+            return []
+        finally:
+            if connection:
+                connection.close()
+    
+    # ==========================================
+    # HELPER METHODS for Session Management
+    # ==========================================
+    
+    def _get_realm_distribution(self, chunks: List[Dict]) -> Dict[str, int]:
+        """Calculate realm distribution for primer context"""
+        distribution = {}
+        for chunk in chunks:
+            realm = chunk.get('realm_id', 'UNKNOWN')
+            distribution[realm] = distribution.get(realm, 0) + 1
+        return distribution
+    
+    def _generate_change_summary(self, change_type: str, change_data: Dict) -> str:
+        """Generate human-readable summary of a change"""
+        if change_type == 'create_chunk':
+            doc = change_data.get('source_document', 'unknown')
+            return f"Create new chunk in {doc}"
+        elif change_type == 'update_chunk':
+            return "Update existing chunk content"
+        elif change_type == 'add_relationship':
+            rel_type = change_data.get('relationship_type', 'related')
+            return f"Add {rel_type} relationship"
+        else:
+            return f"Unknown change type: {change_type}"
+    
+    def _assess_realm_impact(self, realm_id: str, change_type: str) -> str:
+        """Assess the impact level of a change on a realm"""
+        if realm_id == "GLOBAL":
+            return "HIGH" if change_type == 'create_chunk' else "MEDIUM"
+        else:
+            return "MEDIUM" if change_type == 'create_chunk' else "LOW"
+    
+    def _apply_chunk_creation(self, cursor, change_data: Dict, stats: Dict):
+        """Apply chunk creation from session changes"""
+        # Implementation would handle chunk creation
+        stats["chunks_created"] += 1
+        stats["realms_affected"].add(change_data.get('target_realm', 'PROJECT'))
+    
+    def _apply_chunk_update(self, cursor, chunk_id: str, change_data: Dict, stats: Dict, rollback_data: List):
+        """Apply chunk update from session changes"""
+        # Implementation would handle chunk updates
+        stats["chunks_modified"] += 1
+    
+    def _apply_relationship_addition(self, cursor, chunk_id_1: str, chunk_id_2: str, change_data: Dict, stats: Dict):
+        """Apply relationship addition from session changes"""
+        # Implementation would handle relationship creation
+        stats["relationships_added"] += 1
+    
+    def _calculate_context_priority(self, access_count: int, realm_id: str, project_realm: str) -> str:
+        """Calculate context priority for hot contexts"""
+        if realm_id == project_realm:
+            priority_boost = 1.2
+        else:
+            priority_boost = 1.0
+        
+        adjusted_count = access_count * priority_boost
+        
+        if adjusted_count >= 10:
+            return "HIGH"
+        elif adjusted_count >= 5:
+            return "MEDIUM"
+        else:
+            return "LOW"

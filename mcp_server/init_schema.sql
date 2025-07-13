@@ -6,18 +6,23 @@ USE megamind_database;
 -- Phase 1: Core Infrastructure Tables
 CREATE TABLE IF NOT EXISTS megamind_chunks (
     chunk_id VARCHAR(50) PRIMARY KEY,
+    realm_id VARCHAR(50) NOT NULL DEFAULT 'GLOBAL',
     content TEXT NOT NULL,
+    embedding JSON NULL,
+    complexity_score FLOAT DEFAULT 0.0,
     source_document VARCHAR(255) NOT NULL,
     section_path VARCHAR(500),
     chunk_type ENUM('rule', 'function', 'section', 'example') DEFAULT 'section',
     line_count INT DEFAULT 0,
     token_count INT DEFAULT 0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     access_count INT DEFAULT 0,
     INDEX idx_source_doc (source_document),
     INDEX idx_chunk_type (chunk_type),
     INDEX idx_access_count (access_count DESC),
+    INDEX idx_chunks_realm (realm_id),
     FULLTEXT(content, section_path)
 );
 
@@ -49,12 +54,14 @@ CREATE TABLE IF NOT EXISTS megamind_chunk_tags (
 -- Phase 2: Intelligence Layer Tables
 CREATE TABLE IF NOT EXISTS megamind_embeddings (
     embedding_id VARCHAR(50) PRIMARY KEY,
+    realm_id VARCHAR(50) NOT NULL DEFAULT 'GLOBAL',
     chunk_id VARCHAR(50) NOT NULL,
     embedding_vector JSON NOT NULL,
     model_name VARCHAR(100) DEFAULT 'sentence-transformers/all-MiniLM-L6-v2',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (chunk_id) REFERENCES megamind_chunks(chunk_id) ON DELETE CASCADE,
-    INDEX idx_embedding_chunk (chunk_id)
+    INDEX idx_embedding_chunk (chunk_id),
+    INDEX idx_embeddings_realm (realm_id)
 );
 
 -- Phase 3: Session Management Tables
@@ -90,22 +97,32 @@ CREATE TABLE IF NOT EXISTS megamind_knowledge_contributions (
     contributor_type ENUM('human', 'ai_claude', 'ai_gpt', 'automated') DEFAULT 'ai_claude',
     contribution_summary TEXT,
     chunks_affected INT DEFAULT 0,
+    chunks_modified INT DEFAULT 0,
+    chunks_created INT DEFAULT 0,
     relationships_added INT DEFAULT 0,
+    contribution_impact INT DEFAULT 0,
     quality_score DECIMAL(3,2) DEFAULT 0.0,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (session_id) REFERENCES megamind_session_metadata(session_id) ON DELETE CASCADE,
     INDEX idx_contributor_type (contributor_type),
-    INDEX idx_quality_score (quality_score DESC)
+    INDEX idx_quality_score (quality_score DESC),
+    INDEX idx_chunks_modified (chunks_modified DESC),
+    INDEX idx_chunks_created (chunks_created DESC),
+    INDEX idx_contribution_impact (contribution_impact DESC)
 );
 
 -- Phase 4: Advanced Optimization Tables
 CREATE TABLE IF NOT EXISTS megamind_performance_metrics (
     metric_id VARCHAR(50) PRIMARY KEY,
-    metric_type ENUM('query_time', 'chunk_access', 'session_length', 'error_rate') NOT NULL,
+    metric_type ENUM('query_time', 'chunk_access', 'session_length', 'error_rate', 'access_tracking') NOT NULL,
     metric_value DECIMAL(10,4) NOT NULL,
+    chunk_id VARCHAR(50),
+    realm_id VARCHAR(50),
+    query_context TEXT,
     context_data JSON,
     recorded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_metric_type_time (metric_type, recorded_at DESC)
+    INDEX idx_metric_type_time (metric_type, recorded_at DESC),
+    INDEX idx_chunk_realm (chunk_id, realm_id)
 );
 
 CREATE TABLE IF NOT EXISTS megamind_system_health (
