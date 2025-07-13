@@ -135,6 +135,34 @@ class STDIOHttpBridge:
                 }
             }
     
+    def handle_local_mcp_request(self, request_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Handle MCP initialization requests locally in the bridge"""
+        method = request_data.get('method', '')
+        request_id = request_data.get('id')
+        
+        if method == 'initialize':
+            logger.info("🤝 Handling MCP initialize request locally")
+            return {
+                "jsonrpc": "2.0", 
+                "id": request_id,
+                "result": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {
+                        "tools": {},
+                        "resources": {}
+                    },
+                    "serverInfo": {
+                        "name": "megamind-stdio-bridge", 
+                        "version": "1.0.0"
+                    }
+                }
+            }
+        elif method == 'notifications/initialized':
+            logger.info("🎉 Client initialization complete - ready for normal operations")
+            return None  # Notifications don't return responses
+        else:
+            return None  # Not a local request, forward to HTTP backend
+
     async def run_stdio_loop(self):
         """Main STDIO loop - read from stdin, send to HTTP, write to stdout"""
         logger.info("🚀 Starting STDIO-HTTP bridge loop...")
@@ -164,14 +192,27 @@ class STDIOHttpBridge:
                     
                     logger.info(f"🔍 Parsed JSON-RPC: ID={request_id}, Method={method}")
                     
-                    # Send request to HTTP backend (run in thread to avoid blocking)
-                    response_data = await asyncio.to_thread(self.send_http_request, request_data)
+                    # Check if this is a local MCP protocol request
+                    local_response = self.handle_local_mcp_request(request_data)
                     
-                    # Write JSON-RPC response to stdout
-                    response_json = json.dumps(response_data)
-                    logger.debug(f"📤 STDOUT sending: {response_json[:200]}...")
-                    print(response_json, flush=True)
-                    logger.info(f"✅ Completed request {request_id}")
+                    if local_response is not None:
+                        # Handle locally (MCP protocol requests)
+                        response_json = json.dumps(local_response)
+                        logger.debug(f"📤 STDOUT sending (local): {response_json[:200]}...")
+                        print(response_json, flush=True)
+                        logger.info(f"✅ Completed local request {request_id}")
+                    elif method == 'notifications/initialized':
+                        # Notification - no response needed
+                        logger.info(f"✅ Processed notification {method}")
+                    else:
+                        # Forward to HTTP backend for actual MCP tool calls
+                        response_data = await asyncio.to_thread(self.send_http_request, request_data)
+                        
+                        # Write JSON-RPC response to stdout
+                        response_json = json.dumps(response_data)
+                        logger.debug(f"📤 STDOUT sending (HTTP): {response_json[:200]}...")
+                        print(response_json, flush=True)
+                        logger.info(f"✅ Completed HTTP request {request_id}")
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"❌ Invalid JSON received: {e}")
