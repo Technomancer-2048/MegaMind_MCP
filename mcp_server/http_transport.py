@@ -110,6 +110,69 @@ class HTTPMCPTransport:
             if route.method != 'OPTIONS':
                 cors.add(route)
     
+    def _sanitize_realm_id_for_response(self, realm_id: str) -> str:
+        """Sanitize realm ID for safe inclusion in response metadata"""
+        import re
+        
+        if not realm_id:
+            return "unknown"
+        
+        # First check if realm ID contains SQL injection patterns and reject completely
+        sql_patterns = ['union', 'select', 'drop', 'delete', 'insert', 'update', '--', ';', '/*', '*/', 'xp_', 'sp_']
+        realm_lower = realm_id.lower()
+        
+        if any(pattern in realm_lower for pattern in sql_patterns):
+            logger.warning(f"SQL injection pattern detected in realm ID, using safe default: {realm_id}")
+            return "sanitized_realm"
+        
+        # Check for XSS patterns and reject completely
+        xss_patterns = ['<script', '</script', 'javascript:', 'vbscript:', 'onload=', 'onerror=']
+        if any(pattern in realm_lower for pattern in xss_patterns):
+            logger.warning(f"XSS pattern detected in realm ID, using safe default: {realm_id}")
+            return "sanitized_realm"
+        
+        # Remove any potentially dangerous characters
+        sanitized = re.sub(r'[^A-Za-z0-9_-]', '', realm_id)
+        
+        # Limit length to prevent response bloat
+        sanitized = sanitized[:50]
+        
+        # Return safe default if completely sanitized
+        return sanitized if sanitized else "sanitized_realm"
+    
+    def _is_safe_realm_id(self, realm_id: str) -> bool:
+        """Validate realm ID is safe for processing"""
+        import re
+        
+        if not realm_id:
+            return False
+        
+        # Check for SQL injection patterns
+        sql_patterns = ['union', 'select', 'drop', 'delete', 'insert', 'update', '--', ';', '/*', '*/', 'xp_', 'sp_']
+        realm_lower = realm_id.lower()
+        
+        if any(pattern in realm_lower for pattern in sql_patterns):
+            logger.warning(f"SQL injection pattern detected in realm ID: {realm_id}")
+            return False
+        
+        # Check for XSS patterns
+        xss_patterns = ['<script', '</script', 'javascript:', 'vbscript:', 'onload=', 'onerror=']
+        if any(pattern in realm_lower for pattern in xss_patterns):
+            logger.warning(f"XSS pattern detected in realm ID: {realm_id}")
+            return False
+        
+        # Ensure alphanumeric with limited special chars
+        if not re.match(r'^[A-Za-z0-9_-]+$', realm_id):
+            logger.warning(f"Invalid characters in realm ID: {realm_id}")
+            return False
+        
+        # Length check
+        if len(realm_id) > 100:
+            logger.warning(f"Realm ID too long: {len(realm_id)} characters")
+            return False
+        
+        return True
+    
     def setup_routes(self):
         """Setup HTTP routes for MCP protocol and management"""
         # Core MCP endpoints
@@ -198,8 +261,16 @@ class HTTPMCPTransport:
                 except Exception as e:
                     logger.error(f"Security validation failed for dynamic config: {e}")
             
-            # 2. Fallback to existing realm ID extraction logic
+            # 2. Fallback to existing realm ID extraction logic with validation
             realm_id = self._extract_realm_id(data, request)
+            
+            # ENHANCED: Always validate realm ID even in fallback
+            if not self._is_safe_realm_id(realm_id):
+                logger.warning(f"Potentially unsafe realm ID detected: {realm_id}")
+                # Force to safe default instead of using unsafe realm ID
+                realm_id = "PROJECT"
+            
+            # Update security context with validated realm ID
             security_context.realm_id = realm_id
             
             # 3. Create minimal context for backward compatibility
@@ -281,7 +352,7 @@ class HTTPMCPTransport:
             processing_time = (datetime.now() - start_time).total_seconds()
             if isinstance(response, dict):
                 response['_meta'] = {
-                    'realm_id': realm_context.realm_id,
+                    'realm_id': self._sanitize_realm_id_for_response(realm_context.realm_id),
                     'processing_time_ms': round(processing_time * 1000, 2),
                     'server_request_count': self.request_count
                 }
@@ -488,6 +559,14 @@ class HTTPMCPTransport:
     async def security_metrics(self, request: Request) -> Response:
         """Get comprehensive security metrics from Phase 3 pipeline"""
         try:
+            # ENHANCED: Better error handling for security pipeline issues
+            if not hasattr(self, 'security_pipeline'):
+                return web.json_response({
+                    'error': 'Security pipeline not initialized',
+                    'available_features': [],
+                    'status': 'degraded'
+                }, status=503)
+            
             metrics = self.security_pipeline.get_security_metrics()
             
             # Add HTTP-specific metrics
@@ -505,7 +584,11 @@ class HTTPMCPTransport:
             
         except Exception as e:
             logger.error(f"Security metrics failed: {e}")
-            return web.json_response({"error": str(e)}, status=500)
+            return web.json_response({
+                'error': str(e),
+                'status': 'error',
+                'timestamp': datetime.now().isoformat()
+            }, status=500)
     
     async def reset_security_state(self, request: Request) -> Response:
         """Reset security state (admin endpoint)"""

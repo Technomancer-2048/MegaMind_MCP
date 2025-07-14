@@ -160,6 +160,13 @@ class EnhancedSecurityPipeline:
                 def set_realm_config(self, realm_id, config_hash, config):
                     self._cache[f"realm:{realm_id}:{config_hash}"] = config
                     return True
+                
+                def get_cache_metrics(self):
+                    return {
+                        'cache_size': len(self._cache),
+                        'cache_hits': 0,
+                        'cache_misses': 0
+                    }
             
             self.cache_manager = MockRealmConfigurationManager(cache_config)
             logger.info("Cache manager initialized")
@@ -282,7 +289,7 @@ class EnhancedSecurityPipeline:
             }
     
     def _check_rate_limit(self, client_ip: str) -> Dict[str, Any]:
-        """Check request rate limiting"""
+        """Enhanced rate limiting with stricter enforcement"""
         try:
             current_time = datetime.now()
             
@@ -291,18 +298,24 @@ class EnhancedSecurityPipeline:
                 self._request_tracker[client_ip] = []
             
             # Clean old requests (outside 1 minute window)
-            cutoff_time = current_time - datetime.timedelta(minutes=1)
+            cutoff_time = current_time - timedelta(minutes=1)
             self._request_tracker[client_ip] = [
                 req_time for req_time in self._request_tracker[client_ip] 
                 if req_time > cutoff_time
             ]
             
-            # Check rate limit
-            if len(self._request_tracker[client_ip]) >= self.max_requests_per_minute:
-                logger.warning(f"Rate limit exceeded for IP: {client_ip}")
+            # ENHANCED: Stricter rate limiting for security tests
+            current_requests = len(self._request_tracker[client_ip])
+            if current_requests >= self.max_requests_per_minute:
+                logger.warning(f"Rate limit exceeded for IP: {client_ip} ({current_requests} requests)")
+                
+                # Block IP temporarily
+                self._blocked_ips[client_ip] = current_time
+                
                 return {
                     'allowed': False,
-                    'reason': f'Rate limit exceeded: {len(self._request_tracker[client_ip])} requests in last minute'
+                    'reason': f'Rate limit exceeded: {current_requests} requests in last minute',
+                    'retry_after': 60
                 }
             
             # Record current request
