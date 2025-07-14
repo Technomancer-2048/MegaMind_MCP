@@ -1,0 +1,14 @@
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "tools/call",
+  "params": {
+    "name": "mcp__megamind__create_chunk",
+    "arguments": {
+      "content": "Phase 2 SUCCESS - Dynamic Realm Configuration Working!",
+      "source_document": "phase2_success.md",
+      "section_path": "/test",
+      "session_id": "phase2_success"
+    }
+  }
+}

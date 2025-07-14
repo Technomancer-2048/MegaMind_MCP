@@ -35,15 +35,57 @@ class OptimizedSTDIOHttpBridge:
         self.default_target = os.getenv('MEGAMIND_DEFAULT_TARGET', 'PROJECT')
         self.mcp_timeout = int(os.getenv('MCP_TIMEOUT', '30'))
         
+        # Create comprehensive realm configuration for dynamic handling
+        realm_config = {
+            'project_realm': self.project_realm,
+            'project_name': self.project_name,
+            'default_target': self.default_target,
+            'global_realm': 'GLOBAL',
+            'cross_realm_search_enabled': True,
+            'project_priority_weight': 1.2,
+            'global_priority_weight': 1.0
+        }
+        
         self.request_headers = {
             'Content-Type': 'application/json',
             'X-MCP-Realm-ID': self.project_realm,
-            'X-MCP-Project-Name': self.project_name
+            'X-MCP-Project-Name': self.project_name,
+            'X-MCP-Realm-Config': json.dumps(realm_config)
         }
         self.tools_cache = None  # Will be populated lazily
         self.initialized = False
         
+        # Validate configuration on initialization
+        if not self.validate_realm_config():
+            logger.error("Bridge initialization failed due to invalid realm configuration")
+            sys.exit(1)
+            
         logger.info(f"Bridge configured: realm={self.project_realm}, timeout={self.mcp_timeout}s")
+        logger.debug(f"Realm config header: {self.request_headers['X-MCP-Realm-Config']}")
+    
+    def validate_realm_config(self) -> bool:
+        """Validate that all required realm configuration is present"""
+        required_vars = [
+            'MEGAMIND_PROJECT_REALM',
+            'MEGAMIND_PROJECT_NAME', 
+            'MEGAMIND_DEFAULT_TARGET'
+        ]
+        
+        missing = [var for var in required_vars if not os.getenv(var)]
+        if missing:
+            logger.error(f"Missing required environment variables: {missing}")
+            logger.error("Required for dynamic realm configuration:")
+            for var in required_vars:
+                logger.error(f"  {var}={os.getenv(var, 'NOT SET')}")
+            return False
+        
+        # Validate default_target value
+        if self.default_target not in ['PROJECT', 'GLOBAL']:
+            logger.error(f"Invalid MEGAMIND_DEFAULT_TARGET: {self.default_target}. Must be 'PROJECT' or 'GLOBAL'")
+            return False
+        
+        logger.debug("Realm configuration validation passed")
+        return True
     
     async def fetch_backend_capabilities(self) -> Optional[Dict[str, Any]]:
         """Fetch actual tool capabilities from HTTP backend (non-blocking)"""

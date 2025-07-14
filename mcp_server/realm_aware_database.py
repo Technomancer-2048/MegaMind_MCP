@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 class RealmAwareMegaMindDatabase:
     """Realm-aware database operations with dual-realm access patterns"""
     
-    def __init__(self, config: Dict[str, Any], realm_config: Optional[Any] = None, shared_embedding_service: Optional[Any] = None):
+    def __init__(self, config: Dict[str, Any], realm_config: Optional[Any] = None, shared_embedding_service: Optional[Any] = None, access_controller: Optional[RealmAccessController] = None):
         self.config = config
         self.connection_pool = None
         
@@ -42,11 +42,21 @@ class RealmAwareMegaMindDatabase:
         if realm_config is not None:
             self.realm_config = realm_config
             logger.info(f"Using injected realm config for realm: {getattr(realm_config, 'project_realm', 'unknown')}")
+            
+            # If we have a custom realm config, create a custom config manager
+            if access_controller is not None:
+                self.realm_access = access_controller
+                logger.info("Using injected access controller with dynamic configuration")
+            else:
+                # Create dynamic configuration manager and access controller
+                config_manager = RealmConfigurationManager()
+                config_manager.config = realm_config
+                self.realm_access = RealmAccessController(config_manager)
+                logger.info("Created dynamic access controller for injected realm config")
         else:
             self.realm_config = get_realm_config()
-            logger.info("Using environment-based realm config")
-        
-        self.realm_access = get_realm_access_controller()
+            self.realm_access = get_realm_access_controller()
+            logger.info("Using environment-based realm config and access controller")
         self.inheritance_resolver = None  # Initialized after connection setup
         self.promotion_manager = None  # Initialized after connection setup
         self.security_validator = None  # Initialized after connection setup

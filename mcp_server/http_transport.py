@@ -93,52 +93,74 @@ class HTTPMCPTransport:
         )
     
     def extract_realm_context(self, data: Dict[str, Any], request: Request) -> RealmContext:
-        """Extract realm context from JSON-RPC request and HTTP headers"""
+        """Extract realm context with dynamic configuration support"""
         try:
-            # Default realm
-            default_realm = "PROJECT"
+            # 1. Try to get full realm configuration from header (highest priority)
+            realm_config_header = request.headers.get('X-MCP-Realm-Config')
+            if realm_config_header:
+                try:
+                    realm_config = json.loads(realm_config_header)
+                    logger.debug(f"Using dynamic realm configuration: {realm_config}")
+                    
+                    # Validate required fields
+                    required_fields = ['project_realm', 'project_name', 'default_target']
+                    if all(field in realm_config for field in required_fields):
+                        context = RealmContext.from_dynamic_config(realm_config)
+                        logger.info(f"✅ Created dynamic realm context for {context.realm_id}")
+                        return context
+                    else:
+                        missing = [f for f in required_fields if f not in realm_config]
+                        logger.warning(f"Incomplete realm configuration in header, missing: {missing}")
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Invalid JSON in X-MCP-Realm-Config header: {e}")
             
-            # Check for realm_id in various locations
-            realm_id = None
+            # 2. Fallback to existing realm ID extraction logic
+            realm_id = self._extract_realm_id(data, request)
             
-            # 1. Check tool arguments first (highest priority)
-            if 'params' in data and 'arguments' in data['params']:
-                realm_id = data['params']['arguments'].get('realm_id')
-            
-            # 2. Check JSON-RPC params
-            if not realm_id and 'params' in data:
-                realm_id = data['params'].get('realm_id')
-            
-            # 3. Check HTTP headers
-            if not realm_id:
-                realm_id = request.headers.get('X-MCP-Realm-ID')
-            
-            # 4. Check query parameters
-            if not realm_id:
-                realm_id = request.query.get('realm_id')
-            
-            # Use default if no realm specified
-            if not realm_id:
-                realm_id = default_realm
-            
-            # Create realm context
+            # 3. Create minimal context for backward compatibility
             context = RealmContext(
                 realm_id=realm_id,
                 project_name=f"HTTP Project {realm_id}",
                 default_target="PROJECT"
             )
             
-            logger.debug(f"Extracted realm context: {context.to_dict()}")
+            logger.debug(f"Using fallback realm context: {context.to_dict()}")
             return context
             
         except Exception as e:
             logger.error(f"Failed to extract realm context: {e}")
-            # Return default context
-            return RealmContext(
-                realm_id=default_realm,
-                project_name="Default HTTP Project",
-                default_target="PROJECT"
-            )
+            return self._get_default_realm_context()
+
+    def _extract_realm_id(self, data: Dict[str, Any], request: Request) -> str:
+        """Extract realm ID using existing priority logic"""
+        realm_id = None
+        
+        # 1. Check tool arguments first (highest priority)
+        if 'params' in data and 'arguments' in data['params']:
+            realm_id = data['params']['arguments'].get('realm_id')
+        
+        # 2. Check JSON-RPC params
+        if not realm_id and 'params' in data:
+            realm_id = data['params'].get('realm_id')
+        
+        # 3. Check HTTP headers
+        if not realm_id:
+            realm_id = request.headers.get('X-MCP-Realm-ID')
+        
+        # 4. Check query parameters
+        if not realm_id:
+            realm_id = request.query.get('realm_id')
+        
+        # Use default if no realm specified
+        return realm_id or "PROJECT"
+    
+    def _get_default_realm_context(self) -> RealmContext:
+        """Get safe default realm context"""
+        return RealmContext(
+            realm_id="PROJECT",
+            project_name="Default HTTP Project", 
+            default_target="PROJECT"
+        )
     
     async def handle_jsonrpc(self, request: Request) -> Response:
         """Handle JSON-RPC requests over HTTP with realm context"""
@@ -153,8 +175,16 @@ class HTTPMCPTransport:
             # Extract realm context from request
             realm_context = self.extract_realm_context(data, request)
             
-            # Get realm-specific manager
-            realm_manager = await self.realm_factory.get_realm_manager(realm_context.realm_id)
+            # Create realm manager with dynamic configuration if available
+            has_dynamic_config = request.headers.get('X-MCP-Realm-Config') is not None
+            if has_dynamic_config:
+                # Use dynamic realm manager creation
+                realm_manager = await self.realm_factory.create_dynamic_realm_manager(realm_context)
+                logger.debug(f"Using dynamic realm manager for {realm_context.realm_id}")
+            else:
+                # Fallback to static realm manager
+                realm_manager = await self.realm_factory.get_realm_manager(realm_context.realm_id)
+                logger.debug(f"Using static realm manager for {realm_context.realm_id}")
             
             # Create MCP server instance for this request
             mcp_server = MCPServer(realm_manager)

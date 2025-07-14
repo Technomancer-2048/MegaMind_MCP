@@ -22,17 +22,51 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class RealmContext:
-    """Context information for realm operations"""
+    """Enhanced realm context supporting dynamic configuration"""
     realm_id: str
     project_name: str
     default_target: str = "PROJECT"
+    global_realm: str = 'GLOBAL'
+    cross_realm_search_enabled: bool = True
+    project_priority_weight: float = 1.2
+    global_priority_weight: float = 1.0
+    
+    @classmethod
+    def from_dynamic_config(cls, config: Dict[str, Any]) -> 'RealmContext':
+        """Create RealmContext from dynamic configuration"""
+        return cls(
+            realm_id=config['project_realm'],
+            project_name=config['project_name'],
+            default_target=config['default_target'],
+            global_realm=config.get('global_realm', 'GLOBAL'),
+            cross_realm_search_enabled=config.get('cross_realm_search_enabled', True),
+            project_priority_weight=config.get('project_priority_weight', 1.2),
+            global_priority_weight=config.get('global_priority_weight', 1.0)
+        )
     
     def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization"""
         return {
             'realm_id': self.realm_id,
             'project_name': self.project_name,
-            'default_target': self.default_target
+            'default_target': self.default_target,
+            'global_realm': self.global_realm,
+            'cross_realm_search_enabled': self.cross_realm_search_enabled,
+            'project_priority_weight': self.project_priority_weight,
+            'global_priority_weight': self.global_priority_weight
         }
+    
+    def create_realm_config(self) -> 'RealmConfig':
+        """Create RealmConfig instance for access control"""
+        return RealmConfig(
+            project_realm=self.realm_id,
+            project_name=self.project_name,
+            default_target=self.default_target,
+            global_realm=self.global_realm,
+            cross_realm_search_enabled=self.cross_realm_search_enabled,
+            project_priority_weight=self.project_priority_weight,
+            global_priority_weight=self.global_priority_weight
+        )
 
 class RealmManagerFactory:
     """Factory for managing multiple realm contexts with shared resources"""
@@ -291,6 +325,40 @@ class RealmManagerFactory:
             
         except Exception as e:
             logger.error(f"Error during RealmManagerFactory shutdown: {e}")
+    
+    async def create_dynamic_realm_manager(self, realm_context: RealmContext) -> RealmAwareMegaMindDatabase:
+        """Create realm manager with dynamic configuration"""
+        try:
+            # Ensure shared services are initialized
+            if not self.initialized:
+                await self.initialize_shared_services()
+            
+            # Create dynamic realm configuration from context
+            realm_config = realm_context.create_realm_config()
+            
+            # Create temporary configuration manager with dynamic config
+            config_manager = RealmConfigurationManager()
+            config_manager.config = realm_config
+            
+            # Create access controller with dynamic configuration
+            access_controller = RealmAccessController(config_manager)
+            
+            # Create realm-aware database with dynamic configuration
+            realm_manager = RealmAwareMegaMindDatabase(
+                config=self.base_config,
+                realm_config=realm_config,
+                shared_embedding_service=self.shared_embedding_service,
+                access_controller=access_controller
+            )
+            
+            logger.info(f"✅ Created dynamic realm manager for {realm_context.realm_id} with full configuration")
+            return realm_manager
+            
+        except Exception as e:
+            logger.error(f"Failed to create dynamic realm manager: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            raise
 
 class DynamicRealmManagerFactory(RealmManagerFactory):
     """Enhanced factory with dynamic realm creation capabilities"""
