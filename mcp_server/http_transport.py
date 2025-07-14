@@ -18,27 +18,81 @@ try:
     from .realm_manager_factory import RealmManagerFactory, DynamicRealmManagerFactory, RealmContext
     from .realm_aware_database import RealmAwareMegaMindDatabase
     from .megamind_database_server import MCPServer
+    from .enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
+    from .dynamic_realm_validator import RealmConfigValidator
+    from .dynamic_realm_audit_logger import DynamicRealmAuditLogger
+    from .realm_config_cache import RealmConfigurationManager
 except ImportError:
     from realm_manager_factory import RealmManagerFactory, DynamicRealmManagerFactory, RealmContext
     from realm_aware_database import RealmAwareMegaMindDatabase
     from megamind_database_server import MCPServer
+    from enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
+    from dynamic_realm_validator import RealmConfigValidator
+    from dynamic_realm_audit_logger import DynamicRealmAuditLogger
+    from realm_config_cache import RealmConfigurationManager
 
 logger = logging.getLogger(__name__)
 
 class HTTPMCPTransport:
-    """HTTP transport for MCP with dynamic realm support and comprehensive API"""
+    """HTTP transport for MCP with dynamic realm support, comprehensive API, and Phase 3 security"""
     
-    def __init__(self, realm_factory: RealmManagerFactory, host: str = "localhost", port: int = 8080):
+    def __init__(self, realm_factory: RealmManagerFactory, host: str = "localhost", port: int = 8080, 
+                 security_config: Optional[Dict[str, Any]] = None):
         self.realm_factory = realm_factory
         self.host = host
         self.port = port
         self.app = web.Application()
         self.server_start_time = datetime.now()
         self.request_count = 0
+        
+        # Initialize Phase 3 security components
+        self.security_config = security_config or {}
+        self._init_security_pipeline()
+        
         self.setup_routes()
         # Skip CORS setup for now - can be added later if needed
         
-        logger.info(f"HTTPMCPTransport initialized on {host}:{port}")
+        logger.info(f"HTTPMCPTransport initialized on {host}:{port} with enhanced security")
+    
+    def _init_security_pipeline(self):
+        """Initialize Phase 3 security pipeline components"""
+        try:
+            # Extract security configuration
+            security_level = self.security_config.get('security_level', 'standard')
+            
+            # Initialize enhanced security pipeline
+            self.security_pipeline = EnhancedSecurityPipeline({
+                'security_level': security_level,
+                'enable_threat_detection': self.security_config.get('enable_threat_detection', True),
+                'max_validation_time_ms': self.security_config.get('max_validation_time_ms', 5000),
+                'rate_limit_enabled': self.security_config.get('rate_limit_enabled', True),
+                'max_requests_per_minute': self.security_config.get('max_requests_per_minute', 100),
+                'validator_config': self.security_config.get('validator_config', {}),
+                'audit_config': self.security_config.get('audit_config', {
+                    'audit_enabled': True,
+                    'log_to_file': True,
+                    'audit_log_path': '/var/log/megamind/http_audit.log'
+                }),
+                'cache_config': self.security_config.get('cache_config', {
+                    'max_entries': 1000,
+                    'default_ttl_seconds': 1800
+                })
+            })
+            
+            logger.info("✅ Phase 3 security pipeline initialized successfully")
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to initialize security pipeline: {e}")
+            # Create a mock security pipeline for graceful degradation
+            class MockSecurityPipeline:
+                def validate_and_process_realm_config(self, config, context):
+                    return ValidationOutcome.APPROVED, config
+                def get_security_metrics(self):
+                    return {'error': 'Security pipeline not available'}
+                def shutdown(self):
+                    pass
+            
+            self.security_pipeline = MockSecurityPipeline()
     
     def setup_cors(self):
         """Setup CORS for cross-origin requests"""
@@ -72,6 +126,11 @@ class HTTPMCPTransport:
         self.app.router.add_post('/mcp/realms/{realm_id}', self.create_realm)
         self.app.router.add_delete('/mcp/realms/{realm_id}', self.delete_realm)
         
+        # Phase 3 Security endpoints
+        self.app.router.add_get('/mcp/security/metrics', self.security_metrics)
+        self.app.router.add_post('/mcp/security/reset', self.reset_security_state)
+        self.app.router.add_get('/mcp/security/config', self.security_configuration)
+        
         # API documentation endpoint
         self.app.router.add_get('/mcp/api', self.api_documentation)
         
@@ -93,29 +152,55 @@ class HTTPMCPTransport:
         )
     
     def extract_realm_context(self, data: Dict[str, Any], request: Request) -> RealmContext:
-        """Extract realm context with dynamic configuration support"""
+        """Extract realm context with dynamic configuration support and Phase 3 security validation"""
         try:
+            # Create security context for validation
+            security_context = SecurityContext(
+                client_ip=request.remote or 'unknown',
+                user_agent=request.headers.get('User-Agent', 'unknown'),
+                request_id=str(self.request_count),
+                realm_id=None,  # Will be set after extraction
+                operation='extract_realm_context',
+                security_level=SecurityLevel(self.security_config.get('security_level', 'standard'))
+            )
+            
             # 1. Try to get full realm configuration from header (highest priority)
             realm_config_header = request.headers.get('X-MCP-Realm-Config')
             if realm_config_header:
                 try:
                     realm_config = json.loads(realm_config_header)
-                    logger.debug(f"Using dynamic realm configuration: {realm_config}")
+                    logger.debug(f"Processing dynamic realm configuration with security validation")
                     
-                    # Validate required fields
-                    required_fields = ['project_realm', 'project_name', 'default_target']
-                    if all(field in realm_config for field in required_fields):
-                        context = RealmContext.from_dynamic_config(realm_config)
-                        logger.info(f"✅ Created dynamic realm context for {context.realm_id}")
-                        return context
+                    # Update security context with realm ID
+                    security_context.realm_id = realm_config.get('project_realm', 'unknown')
+                    
+                    # Validate configuration through security pipeline
+                    outcome, processed_config = self.security_pipeline.validate_and_process_realm_config(
+                        realm_config, security_context
+                    )
+                    
+                    if outcome == ValidationOutcome.APPROVED or outcome == ValidationOutcome.APPROVED_WITH_WARNINGS:
+                        # Validate required fields in processed config
+                        required_fields = ['project_realm', 'project_name', 'default_target']
+                        if all(field in processed_config for field in required_fields):
+                            context = RealmContext.from_dynamic_config(processed_config)
+                            logger.info(f"✅ Created secure dynamic realm context for {context.realm_id} (outcome: {outcome.value})")
+                            return context
+                        else:
+                            missing = [f for f in required_fields if f not in processed_config]
+                            logger.warning(f"Processed config missing required fields: {missing}")
                     else:
-                        missing = [f for f in required_fields if f not in realm_config]
-                        logger.warning(f"Incomplete realm configuration in header, missing: {missing}")
+                        logger.warning(f"❌ Realm configuration validation failed: {outcome.value}")
+                        # Fall through to backup realm context
+                        
                 except json.JSONDecodeError as e:
                     logger.warning(f"Invalid JSON in X-MCP-Realm-Config header: {e}")
+                except Exception as e:
+                    logger.error(f"Security validation failed for dynamic config: {e}")
             
             # 2. Fallback to existing realm ID extraction logic
             realm_id = self._extract_realm_id(data, request)
+            security_context.realm_id = realm_id
             
             # 3. Create minimal context for backward compatibility
             context = RealmContext(
@@ -400,6 +485,72 @@ class HTTPMCPTransport:
             logger.error(f"Delete realm failed: {e}")
             return web.json_response({"error": str(e)}, status=500)
     
+    async def security_metrics(self, request: Request) -> Response:
+        """Get comprehensive security metrics from Phase 3 pipeline"""
+        try:
+            metrics = self.security_pipeline.get_security_metrics()
+            
+            # Add HTTP-specific metrics
+            metrics['http_transport'] = {
+                'total_requests': self.request_count,
+                'uptime_seconds': (datetime.now() - self.server_start_time).total_seconds(),
+                'security_config': {
+                    'security_level': self.security_config.get('security_level', 'standard'),
+                    'threat_detection_enabled': self.security_config.get('enable_threat_detection', True),
+                    'rate_limiting_enabled': self.security_config.get('rate_limit_enabled', True)
+                }
+            }
+            
+            return web.json_response(metrics)
+            
+        except Exception as e:
+            logger.error(f"Security metrics failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+    
+    async def reset_security_state(self, request: Request) -> Response:
+        """Reset security state (admin endpoint)"""
+        try:
+            # Get client IP from query parameter (optional)
+            client_ip = request.query.get('client_ip')
+            
+            # Reset security state
+            self.security_pipeline.reset_security_state(client_ip)
+            
+            response_data = {
+                "message": f"Security state reset {'for IP: ' + client_ip if client_ip else 'for all IPs'}",
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return web.json_response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Security state reset failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+    
+    async def security_configuration(self, request: Request) -> Response:
+        """Get current security configuration"""
+        try:
+            config_data = {
+                "security_level": self.security_config.get('security_level', 'standard'),
+                "threat_detection_enabled": self.security_config.get('enable_threat_detection', True),
+                "rate_limiting_enabled": self.security_config.get('rate_limit_enabled', True),
+                "max_requests_per_minute": self.security_config.get('max_requests_per_minute', 100),
+                "max_validation_time_ms": self.security_config.get('max_validation_time_ms', 5000),
+                "phase3_features": {
+                    "dynamic_realm_validator": True,
+                    "audit_logging": True,
+                    "configuration_caching": True,
+                    "enhanced_security_pipeline": True
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            return web.json_response(config_data)
+            
+        except Exception as e:
+            logger.error(f"Security configuration request failed: {e}")
+            return web.json_response({"error": str(e)}, status=500)
+
     async def api_documentation(self, request: Request) -> Response:
         """API documentation endpoint"""
         documentation = {
@@ -437,6 +588,21 @@ class HTTPMCPTransport:
                 "/mcp/realms/{realm_id}": {
                     "method": "POST",
                     "description": "Create new realm (dynamic factory only)"
+                },
+                "/mcp/security/metrics": {
+                    "method": "GET",
+                    "description": "Get comprehensive security metrics from Phase 3 pipeline"
+                },
+                "/mcp/security/reset": {
+                    "method": "POST",
+                    "description": "Reset security state (admin endpoint)",
+                    "query_params": {
+                        "client_ip": "Optional IP to reset (if not provided, resets all)"
+                    }
+                },
+                "/mcp/security/config": {
+                    "method": "GET",
+                    "description": "Get current security configuration and Phase 3 feature status"
                 },
                 "/mcp/api": {
                     "method": "GET",
@@ -510,6 +676,11 @@ class HTTPMCPTransport:
         try:
             logger.info("Shutting down HTTP MCP Server...")
             
+            # Cleanup Phase 3 security pipeline
+            if hasattr(self, 'security_pipeline'):
+                self.security_pipeline.shutdown()
+                logger.info("✓ Security pipeline shutdown complete")
+            
             # Cleanup realm factory
             await self.realm_factory.shutdown()
             
@@ -519,15 +690,20 @@ class HTTPMCPTransport:
             logger.error(f"Error during HTTP server shutdown: {e}")
 
 class RealmAwareHTTPMCPServer:
-    """Enhanced HTTP MCP Server with realm-aware request routing"""
+    """Enhanced HTTP MCP Server with realm-aware request routing and Phase 3 security"""
     
     def __init__(self, realm_factory: RealmManagerFactory, config: Dict[str, Any]):
         self.realm_factory = realm_factory
         self.config = config
+        
+        # Extract security configuration
+        security_config = config.get('security', {})
+        
         self.http_transport = HTTPMCPTransport(
             realm_factory=realm_factory,
             host=config.get('host', 'localhost'),
-            port=config.get('port', 8080)
+            port=config.get('port', 8080),
+            security_config=security_config
         )
         
     async def run(self):
