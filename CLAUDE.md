@@ -2,6 +2,37 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## ⚠️ HIGH IMPORTANCE - MegaMind MCP Behavioral Policies
+
+### 🔄 Session Startup Protocol
+1. **ALWAYS** call `mcp__megamind__get_session_primer(last_session_data)` on conversation start
+2. If active session exists: Load procedural context (workflow state, not knowledge chunks)
+3. If no session exists: Prompt user to create/select session
+
+### 🔍 Context Retrieval Protocol
+**Before ANY project-level tasks**:
+1. Use `mcp__megamind__search_chunks(query, limit=10, search_type="hybrid")` for initial context
+2. For deeper relationships: `mcp__megamind__get_related_chunks(chunk_id, max_depth=2)`
+3. **ALWAYS** track access: `mcp__megamind__track_access(chunk_id, query_context)`
+4. Include chunk IDs in responses for complete traceability
+
+### 💾 Knowledge Capture Protocol  
+**During development when significant findings emerge**:
+1. Buffer discoveries using appropriate MCP functions (`create_chunk`, `update_chunk`, `add_relationship`)
+2. Generate session summary: `mcp__megamind__get_pending_changes(session_id)`
+3. Present summary with impact assessment to user for review
+4. On user approval: `mcp__megamind__commit_session_changes(session_id, approved_changes)`
+
+### 🚀 Knowledge Promotion Protocol
+**For discoveries with broader applicability**:
+1. Create promotion request to GLOBAL realm with clear justification using `mcp__megamind__create_promotion_request`
+2. User manages promotion queue via promotion system functions
+3. Track promotion impact and maintain audit trail
+
+**CRITICAL**: These protocols ensure proper knowledge management, session continuity, and systematic capture of development insights.
+
+---
+
 ## Project Overview
 
 This is the **Context Database System** - an MCP server designed to eliminate context exhaustion in AI development workflows by replacing large markdown file loading with precise, semantically-chunked database retrieval.
@@ -211,6 +242,55 @@ When working with code in this project:
 2. **Textsmith** - For all file operations, code modifications, content processing
 3. **SQL Files** - For database schema operations and query optimization
 4. **Quick Data** - For analytics and usage pattern analysis
+5. **Make a Mind MCP** - For brain-inspired knowledge organization and memory palace creation
+
+### Make a Mind MCP Integration
+**PURPOSE**: The "Make a Mind" MCP complements the MegaMind Context Database by providing brain-inspired knowledge organization patterns and memory palace techniques for enhanced knowledge retention and retrieval.
+
+#### Core Capabilities
+- **Memory Palace Creation**: Build spatial memory structures for complex knowledge domains
+- **Knowledge Chunking Optimization**: Apply cognitive science principles to improve chunk boundaries
+- **Associative Linking**: Create brain-inspired relationship patterns between concepts
+- **Spaced Repetition Integration**: Optimize knowledge access patterns based on cognitive research
+- **Concept Hierarchy Mapping**: Organize knowledge using natural cognitive categorization
+
+#### Integration with MegaMind Context Database
+**Workflow Pattern**:
+1. **MegaMind Search**: Use `mcp__megamind__search_chunks` for initial knowledge retrieval
+2. **Make a Mind Organization**: Apply cognitive structuring to search results for better comprehension
+3. **Enhanced Relationships**: Use Make a Mind patterns to suggest improved `mcp__megamind__add_relationship` connections
+4. **Memory Palace Storage**: Create spatial representations of complex knowledge clusters
+5. **Optimized Retrieval**: Use cognitive principles to improve future search strategies
+
+#### Use Cases
+- **Complex System Understanding**: Build memory palaces for large codebases or architectural patterns
+- **Learning Path Optimization**: Apply spaced repetition to knowledge chunk access patterns
+- **Concept Relationship Discovery**: Find non-obvious connections between disparate knowledge areas
+- **Knowledge Retention Enhancement**: Structure information for better long-term retention
+- **Cognitive Load Management**: Organize complex information to reduce mental overhead
+
+#### Function Integration Examples
+```python
+# Example workflow combining both systems
+search_results = mcp__megamind__search_chunks("authentication patterns")
+memory_palace = make_a_mind_create_palace(search_results, domain="security")
+enhanced_chunks = make_a_mind_optimize_chunking(search_results)
+
+# Apply cognitive insights back to MegaMind
+for chunk in enhanced_chunks:
+    mcp__megamind__add_relationship(
+        chunk['id'], 
+        chunk['cognitive_anchor'], 
+        "memory_palace_association"
+    )
+```
+
+#### Cognitive Enhancement Features
+- **Spatial Memory Mapping**: Convert abstract concepts into spatial relationships
+- **Chunking Optimization**: Apply Miller's Rule and cognitive load theory to chunk sizing
+- **Associative Networks**: Build memory networks based on psychological association principles
+- **Retrieval Practice**: Implement testing effects for knowledge reinforcement
+- **Elaborative Encoding**: Enhance chunk content with cognitive elaboration techniques
 
 ### MegaMind MCP Function Naming Schema
 **CRITICAL**: The MegaMind MCP server uses a consistent naming convention to avoid confusion:
@@ -494,3 +574,121 @@ The system is ready for Phase 3 enhancements:
 - ML-based impact prediction
 - Automated curation workflows
 - Performance optimization for embedding service startup
+
+## MCP Protocol Implementation Guidelines
+
+### Connection Initialization Handshake Structure
+
+**CRITICAL**: Claude Code expects a specific MCP protocol initialization sequence. This handshake MUST be implemented correctly in any STDIO bridge or MCP server implementation.
+
+#### **Required Handshake Sequence**
+
+**1. Initialize Request/Response (Required)**
+```json
+// Claude Code sends:
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "initialize",
+  "params": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "roots": {
+        "listChanged": true
+      },
+      "sampling": {}
+    },
+    "clientInfo": {
+      "name": "claude-code",
+      "version": "1.0.0"
+    }
+  }
+}
+
+// Server MUST respond with:
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
+    "protocolVersion": "2024-11-05",
+    "capabilities": {
+      "tools": {},           // Your tool capabilities
+      "resources": {}        // Optional resources
+    },
+    "serverInfo": {
+      "name": "megamind-mcp-server",
+      "version": "1.0.0"
+    }
+  }
+}
+```
+
+**2. Initialized Notification (Required)**
+```json
+// Claude Code sends (no response expected):
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/initialized"
+}
+```
+
+#### **Implementation Requirements**
+
+**Bridge Architecture**: For STDIO-HTTP bridges, handle MCP protocol locally:
+- **Initialization Requests**: Handle `initialize` and `notifications/initialized` locally in the bridge
+- **Tool Calls**: Forward `tools/list` and `tools/call` requests to HTTP backend
+- **Protocol Compliance**: Must respond with exact JSON-RPC 2.0 format and required fields
+
+**Timeout Configuration**: Claude Code uses configurable timeouts:
+- **Default Timeout**: 30 seconds for MCP connection establishment
+- **Extended Timeout**: Set `MCP_TIMEOUT` environment variable (e.g., `"60000"` for 60 seconds)
+- **Accommodation**: Allow time for embedding service initialization in containers
+
+#### **Common Implementation Issues**
+
+**Missing Handlers**: 
+- ❌ **Problem**: Bridge forwards ALL requests to HTTP backend including initialization
+- ✅ **Solution**: Handle MCP protocol locally, forward only actual tool calls
+
+**Incorrect Response Format**:
+- ❌ **Problem**: Missing required fields in `initialize` response
+- ✅ **Solution**: Include `protocolVersion`, `capabilities`, and `serverInfo`
+
+**Timeout Issues**:
+- ❌ **Problem**: Container services (embedding models) take time to initialize
+- ✅ **Solution**: Set appropriate `MCP_TIMEOUT` in environment configuration
+
+#### **Testing MCP Protocol Compliance**
+
+**Manual Bridge Test**:
+```bash
+# Test initialization handshake
+echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | python3 stdio_http_bridge.py
+
+# Test initialized notification
+echo '{"jsonrpc":"2.0","method":"notifications/initialized"}' | python3 stdio_http_bridge.py
+```
+
+**Expected Results**:
+- Initialize: Returns complete capabilities response with all 20 tools
+- Initialized: Acknowledges notification (may return empty response)
+- No EOF errors or connection termination
+
+#### **Bridge Configuration Examples**
+
+**Production STDIO Bridge Configuration**:
+```json
+"megamind-context-db": {
+  "command": "python3",
+  "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
+  "env": {
+    "MEGAMIND_PROJECT_REALM": "MegaMind_MCP",
+    "MEGAMIND_PROJECT_NAME": "MegaMind Context Database",
+    "MEGAMIND_DEFAULT_TARGET": "PROJECT",
+    "LOG_LEVEL": "INFO",
+    "MCP_TIMEOUT": "60000"
+  }
+}
+```
+
+This protocol implementation ensures reliable Claude Code connectivity and prevents common connection timeout and handshake failures.

@@ -50,13 +50,14 @@
       }
     },
     "megamind-context-db": {
-      "command": "node",
-      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.js"],
+      "command": "python3",
+      "args": ["/Data/MCP_Servers/MegaMind_MCP/mcp_server/stdio_http_bridge.py"],
       "env": {
         "MEGAMIND_PROJECT_REALM": "MegaMind_MCP", 
         "MEGAMIND_PROJECT_NAME": "MegaMind Context Database",
         "MEGAMIND_DEFAULT_TARGET": "PROJECT",
-        "LOG_LEVEL": "INFO"
+        "LOG_LEVEL": "INFO",
+        "MCP_TIMEOUT": "60000"
       }
     }
   }
