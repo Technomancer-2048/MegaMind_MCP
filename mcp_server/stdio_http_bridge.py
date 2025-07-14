@@ -279,8 +279,32 @@ class OptimizedSTDIOHttpBridge:
             # Sanitize request
             sanitized_request = self.sanitize_request_params(request_data)
             
-            # Prepare HTTP request
+            # Check payload size before sending to prevent large payload issues
             json_data = json.dumps(sanitized_request).encode('utf-8')
+            payload_size = len(json_data)
+            
+            # Define payload size limits (adjust as needed)
+            MAX_PAYLOAD_SIZE = 1024 * 1024  # 1MB limit
+            WARN_PAYLOAD_SIZE = 100 * 1024   # 100KB warning threshold
+            
+            if payload_size > MAX_PAYLOAD_SIZE:
+                logger.warning(f"🚫 Payload too large: {payload_size} bytes > {MAX_PAYLOAD_SIZE} bytes")
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": -32602,  # Invalid params - payload too large
+                        "message": f"Request payload too large: {payload_size} bytes exceeds maximum of {MAX_PAYLOAD_SIZE} bytes",
+                        "data": {
+                            "payload_size": payload_size,
+                            "max_size": MAX_PAYLOAD_SIZE,
+                            "error_type": "payload_size_exceeded"
+                        }
+                    }
+                }
+            elif payload_size > WARN_PAYLOAD_SIZE:
+                logger.warning(f"⚠️ Large payload detected: {payload_size} bytes (threshold: {WARN_PAYLOAD_SIZE})")
+            
             req = urllib.request.Request(
                 self.http_endpoint,
                 data=json_data,
@@ -290,10 +314,64 @@ class OptimizedSTDIOHttpBridge:
             
             # Send request with configurable timeout
             def _make_request():
-                with urllib.request.urlopen(req, timeout=self.mcp_timeout) as response:
-                    return response.read().decode('utf-8')
+                try:
+                    with urllib.request.urlopen(req, timeout=self.mcp_timeout) as response:
+                        return response.read().decode('utf-8'), response.status
+                except urllib.error.HTTPError as e:
+                    # Handle HTTP error responses
+                    error_body = e.read().decode('utf-8') if e.fp else ''
+                    return error_body, e.code
             
-            response_body = await asyncio.to_thread(_make_request)
+            response_body, status_code = await asyncio.to_thread(_make_request)
+            
+            # Handle HTTP error status codes by converting to JSON-RPC errors
+            if status_code != 200:
+                logger.warning(f"⚠️ HTTP {status_code} from backend for {request_id}")
+                
+                # Try to parse error response, fallback to generic error
+                try:
+                    error_data = json.loads(response_body) if response_body else {}
+                    
+                    # If backend already returned JSON-RPC error, use it
+                    if isinstance(error_data, dict) and 'error' in error_data:
+                        return error_data
+                        
+                except json.JSONDecodeError:
+                    pass
+                
+                # Convert HTTP status codes to JSON-RPC error codes
+                if status_code == 400:
+                    json_rpc_code = -32602  # Invalid params
+                    error_msg = "Invalid request parameters"
+                elif status_code == 404:
+                    json_rpc_code = -32601  # Method not found
+                    error_msg = "Method not found"
+                elif status_code == 413:  # Payload too large
+                    json_rpc_code = -32602  # Invalid params
+                    error_msg = "Request payload too large"
+                elif status_code == 429:  # Too many requests
+                    json_rpc_code = -32603  # Internal error (rate limiting)
+                    error_msg = "Rate limit exceeded"
+                elif status_code >= 500:
+                    json_rpc_code = -32603  # Internal error
+                    error_msg = "Server internal error"
+                else:
+                    json_rpc_code = -32603  # Internal error
+                    error_msg = f"HTTP {status_code} error"
+                
+                return {
+                    "jsonrpc": "2.0",
+                    "id": request_id,
+                    "error": {
+                        "code": json_rpc_code,
+                        "message": error_msg,
+                        "data": {
+                            "http_status": status_code,
+                            "original_response": response_body[:500] if response_body else None  # Truncate for safety
+                        }
+                    }
+                }
+            
             response_data = json.loads(response_body)
             
             # Clean up response - remove non-standard fields that break Claude Code validation
