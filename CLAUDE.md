@@ -300,6 +300,26 @@ for chunk in enhanced_chunks:
 - **Examples**: `mcp__megamind__search_chunks`, `mcp__megamind__get_chunk`, `mcp__megamind__create_promotion_request`
 - **Total Count**: 20 functions across 5 categories (Search, Content, Promotion, Session, Analytics)
 
+#### **NEW MCP Function Naming Convention** ⚠️
+**CRITICAL**: When creating new MCP function names, the first component MUST be the function type/category:
+
+- **Format**: `mcp__megamind__[TYPE]_[specific_function]`
+- **Function Type Prefixes**:
+  - `search_` - Search and retrieval operations
+  - `content_` - Content management operations  
+  - `promotion_` - Knowledge promotion operations
+  - `session_` - Session management operations
+  - `analytics_` - Analytics and optimization operations
+
+**Examples of Correct New Function Names**:
+- `mcp__megamind__session_new_session` - Create new session
+- `mcp__megamind__search_advanced_filter` - Advanced search with filters
+- `mcp__megamind__content_bulk_import` - Bulk content import
+- `mcp__megamind__promotion_auto_approve` - Automated promotion approval
+- `mcp__megamind__analytics_usage_report` - Generate usage analytics
+
+**CRITICALLY DELINEATE**: Each function group MUST be clearly identified by its prefix to maintain architectural clarity and prevent function categorization confusion.
+
 #### **Quick Reference - All 20 Functions**
 ```
 Search & Retrieval (5):

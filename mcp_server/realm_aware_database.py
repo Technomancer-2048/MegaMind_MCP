@@ -368,7 +368,7 @@ class RealmAwareMegaMindDatabase:
     
     def create_chunk_with_target(self, content: str, source_document: str, section_path: str,
                                  session_id: str, target_realm: str = None) -> str:
-        """Enhanced realm-aware chunk creation with embedding generation"""
+        """Enhanced realm-aware chunk creation with direct database storage"""
         connection = None
         try:
             connection = self.get_connection()
@@ -409,41 +409,42 @@ class RealmAwareMegaMindDatabase:
             else:
                 embedding_json = None
             
-            # Store in session changes for review workflow
-            change_data = {
-                "chunk_id": new_chunk_id,
-                "content": content,
-                "source_document": source_document,
-                "section_path": section_path,
-                "chunk_type": "section",  # Default type
-                "line_count": len(content.split('\n')),
-                "realm_id": target,
-                "embedding": embedding_json,
-                "token_count": len(content.split()),
-                "content_hash": None  # TODO: Calculate content hash
-            }
+            # DIRECT DATABASE STORAGE - No session buffering for knowledge retention
+            # Calculate metadata
+            line_count = len(content.split('\n'))
+            token_count = len(content.split())
             
-            # Calculate impact score based on content length and complexity
-            impact_score = min(1.0, len(content) / 1000.0)
-            
-            # Insert into session changes
-            change_id = f"change_{uuid.uuid4().hex[:12]}"
-            insert_change_query = """
-            INSERT INTO megamind_session_changes 
-            (change_id, session_id, change_type, change_data, impact_score, source_realm_id)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            # Insert chunk directly into database
+            insert_chunk_query = """
+            INSERT INTO megamind_chunks 
+            (chunk_id, content, source_document, section_path, chunk_type, line_count, 
+             realm_id, token_count, created_at, last_accessed, access_count)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, 0)
             """
             
-            cursor.execute(insert_change_query, (
-                change_id, session_id, 'create_chunk', json.dumps(change_data), 
-                impact_score, target
+            cursor.execute(insert_chunk_query, (
+                new_chunk_id, content, source_document, section_path, 
+                "section", line_count, target, token_count
             ))
             
-            # Update session metadata
-            self._update_session_metadata(cursor, session_id, target)
+            # Insert embedding if available
+            if embedding_json:
+                embedding_id = f"emb_{uuid.uuid4().hex[:12]}"
+                insert_embedding_query = """
+                INSERT INTO megamind_embeddings 
+                (embedding_id, chunk_id, embedding_vector, realm_id, created_at)
+                VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                """
+                cursor.execute(insert_embedding_query, (embedding_id, new_chunk_id, embedding_json, target))
+            
+            # TODO: Session tracking temporarily disabled - will be replaced by new session system (Issue #15)
+            # The old contribution tracking was causing database schema errors and JSON parsing failures
+            # New session system will handle operational tracking through proper session entries
+            if session_id:
+                logger.debug(f"Session {session_id}: Created chunk {new_chunk_id} (tracking disabled pending new session system)")
             
             connection.commit()
-            logger.info(f"Chunk creation buffered for realm {target}: {new_chunk_id}")
+            logger.info(f"Chunk created directly in realm {target}: {new_chunk_id}")
             return new_chunk_id
             
         except Exception as e:
