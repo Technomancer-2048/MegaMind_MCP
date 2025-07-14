@@ -435,7 +435,7 @@ class RealmAwareMegaMindDatabase:
             """
             
             cursor.execute(insert_change_query, (
-                change_id, session_id, 'create', json.dumps(change_data), 
+                change_id, session_id, 'create_chunk', json.dumps(change_data), 
                 impact_score, target
             ))
             
@@ -725,12 +725,12 @@ class RealmAwareMegaMindDatabase:
             # Create new session
             insert_query = """
             INSERT INTO megamind_session_metadata 
-            (session_id, user_context, project_context, realm_id)
-            VALUES (%s, %s, %s, %s)
+            (session_id, user_id, project_context)
+            VALUES (%s, %s, %s)
             """
             cursor.execute(insert_query, (
                 session_id, 'mcp_user', 
-                self._get_realm_config().project_name, realm_id
+                self._get_realm_config().project_name
             ))
     
     def get_realm_info(self) -> Dict[str, Any]:

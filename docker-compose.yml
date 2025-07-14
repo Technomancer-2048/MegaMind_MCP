@@ -15,7 +15,7 @@ services:
     volumes:
       - megamind_db_data:/var/lib/mysql
       - ./database/context_system:/docker-entrypoint-initdb.d/legacy/
-      - ./mcp_server/complete_schema.sql:/docker-entrypoint-initdb.d/01-complete_schema.sql
+      - ./mcp_server/init_schema.sql:/docker-entrypoint-initdb.d/01-init_schema.sql
     # No external ports - only accessible within Docker network
     expose:
       - "3306"

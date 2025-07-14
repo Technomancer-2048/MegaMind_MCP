@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS megamind_session_changes (
     session_id VARCHAR(50) NOT NULL,
     change_type ENUM('create_chunk', 'update_chunk', 'add_relationship', 'add_tag') NOT NULL,
     target_chunk_id VARCHAR(50),
+    source_realm_id VARCHAR(50) NOT NULL,
     change_data JSON NOT NULL,
     impact_score DECIMAL(3,2) DEFAULT 0.0,
     priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',

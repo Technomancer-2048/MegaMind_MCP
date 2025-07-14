@@ -14,6 +14,13 @@ import urllib.parse
 import urllib.error
 from typing import Dict, Any, Optional
 
+# Import hardened JSON utilities
+from json_utils import (
+    safe_json_loads, safe_json_dumps, 
+    JSONParsingError, JSONValidationError,
+    sanitize_for_logging, validate_mcp_request
+)
+
 # Configure logging level from environment
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 logging.basicConfig(
@@ -50,7 +57,7 @@ class OptimizedSTDIOHttpBridge:
             'Content-Type': 'application/json',
             'X-MCP-Realm-ID': self.project_realm,
             'X-MCP-Project-Name': self.project_name,
-            'X-MCP-Realm-Config': json.dumps(realm_config)
+            'X-MCP-Realm-Config': safe_json_dumps(realm_config, "realm_config_header")
         }
         self.tools_cache = None  # Will be populated lazily
         self.initialized = False
@@ -99,7 +106,7 @@ class OptimizedSTDIOHttpBridge:
                 "method": "tools/list"
             }
             
-            json_data = json.dumps(tools_request).encode('utf-8')
+            json_data = safe_json_dumps(tools_request, "tools_request").encode('utf-8')
             req = urllib.request.Request(
                 self.http_endpoint,
                 data=json_data,
@@ -113,7 +120,7 @@ class OptimizedSTDIOHttpBridge:
                     return response.read().decode('utf-8')
             
             response_body = await asyncio.to_thread(_make_request)
-            response_data = json.loads(response_body)
+            response_data = safe_json_loads(response_body, "backend_capabilities")
             
             # Clean up response - remove non-standard fields
             if isinstance(response_data, dict):
@@ -280,7 +287,7 @@ class OptimizedSTDIOHttpBridge:
             sanitized_request = self.sanitize_request_params(request_data)
             
             # Check payload size before sending to prevent large payload issues
-            json_data = json.dumps(sanitized_request).encode('utf-8')
+            json_data = safe_json_dumps(sanitized_request, "http_request").encode('utf-8')
             payload_size = len(json_data)
             
             # Define payload size limits (adjust as needed)
@@ -330,13 +337,13 @@ class OptimizedSTDIOHttpBridge:
                 
                 # Try to parse error response, fallback to generic error
                 try:
-                    error_data = json.loads(response_body) if response_body else {}
+                    error_data = safe_json_loads(response_body, "error_response") if response_body else {}
                     
                     # If backend already returned JSON-RPC error, use it
                     if isinstance(error_data, dict) and 'error' in error_data:
                         return error_data
                         
-                except json.JSONDecodeError:
+                except (JSONParsingError, JSONValidationError, json.JSONDecodeError):
                     pass
                 
                 # Convert HTTP status codes to JSON-RPC error codes
@@ -372,7 +379,7 @@ class OptimizedSTDIOHttpBridge:
                     }
                 }
             
-            response_data = json.loads(response_body)
+            response_data = safe_json_loads(response_body, "http_response")
             
             # Clean up response - remove non-standard fields that break Claude Code validation
             if isinstance(response_data, dict):
@@ -424,8 +431,15 @@ class OptimizedSTDIOHttpBridge:
                     continue
                 
                 try:
-                    # Parse JSON-RPC request
-                    request_data = json.loads(line)
+                    # Parse JSON-RPC request with hardened parser
+                    request_data = safe_json_loads(line, "stdio_request")
+                    
+                    # Validate MCP protocol structure
+                    is_valid, error_msg = validate_mcp_request(request_data)
+                    if not is_valid:
+                        logger.warning(f"⚠️ Invalid MCP request: {error_msg}")
+                        # Continue processing but log the issue
+                    
                     request_id = request_data.get('id', 'unknown')
                     method = request_data.get('method', 'unknown')
                     
@@ -447,19 +461,31 @@ class OptimizedSTDIOHttpBridge:
                     
                     if local_response is not None:
                         # Send local response
-                        response_json = json.dumps(local_response)
+                        response_json = safe_json_dumps(local_response, "local_response")
                         print(response_json, flush=True)
                         logger.debug(f"📤 Local response sent for {request_id}")
                     else:
                         # Forward to backend
                         response_data = await self.send_http_request(request_data)
                         
-                        response_json = json.dumps(response_data)
+                        response_json = safe_json_dumps(response_data, "backend_response")
                         print(response_json, flush=True)
                         logger.debug(f"📤 Backend response sent for {request_id}")
                     
+                except (JSONParsingError, JSONValidationError) as e:
+                    logger.error(f"❌ JSON parsing/validation error: {e}")
+                    error_response = {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {
+                            "code": -32700,
+                            "message": f"Parse error: {str(e)}"
+                        }
+                    }
+                    print(safe_json_dumps(error_response, "error_response"), flush=True)
+                    
                 except json.JSONDecodeError as e:
-                    logger.error(f"❌ Invalid JSON: {e}")
+                    logger.error(f"❌ Legacy JSON decode error: {e}")
                     error_response = {
                         "jsonrpc": "2.0",
                         "id": None,
@@ -468,7 +494,7 @@ class OptimizedSTDIOHttpBridge:
                             "message": "Parse error: Invalid JSON"
                         }
                     }
-                    print(json.dumps(error_response), flush=True)
+                    print(safe_json_dumps(error_response, "legacy_error_response"), flush=True)
                     
                 except Exception as e:
                     logger.error(f"❌ Request processing error: {e}")
@@ -488,7 +514,7 @@ class OptimizedSTDIOHttpBridge:
                             "message": f"Internal error: {str(e)}"
                         }
                     }
-                    print(json.dumps(error_response), flush=True)
+                    print(safe_json_dumps(error_response, "general_error_response"), flush=True)
                     
         except KeyboardInterrupt:
             logger.info("Received interrupt signal")
