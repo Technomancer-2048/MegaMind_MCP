@@ -253,3 +253,246 @@ CREATE TABLE IF NOT EXISTS megamind_promotion_impact (
     INDEX idx_impact_quality (content_quality_score DESC, relevance_score DESC),
     INDEX idx_impact_conflicts (potential_conflicts_count DESC, analyzed_at DESC)
 ) ENGINE=InnoDB;
+
+-- ================================================================
+-- ENHANCED SESSION SYSTEM (Issue #15 - Phase 1)
+-- ================================================================
+
+-- Enhanced Session Management with State Tracking
+CREATE TABLE IF NOT EXISTS megamind_sessions (
+    session_id VARCHAR(50) PRIMARY KEY,
+    
+    -- Session identification and context
+    session_name VARCHAR(255) DEFAULT NULL,
+    user_id VARCHAR(100) DEFAULT NULL,
+    realm_id VARCHAR(50) NOT NULL DEFAULT 'PROJECT',
+    project_context VARCHAR(255) DEFAULT NULL,
+    
+    -- Session state management (open/active/archived)
+    session_state ENUM('open', 'active', 'archived') NOT NULL DEFAULT 'open',
+    state_changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    -- Session metadata and configuration
+    session_config JSON DEFAULT NULL,
+    session_tags JSON DEFAULT NULL,
+    priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
+    
+    -- Semantic indexing support
+    enable_semantic_indexing BOOLEAN DEFAULT TRUE,
+    content_token_limit INT DEFAULT 128,
+    embedding_generation_enabled BOOLEAN DEFAULT TRUE,
+    
+    -- Session statistics
+    total_entries INT DEFAULT 0,
+    total_chunks_accessed INT DEFAULT 0,
+    total_operations INT DEFAULT 0,
+    last_semantic_update TIMESTAMP DEFAULT NULL,
+    
+    -- Lifecycle timestamps
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    archived_at TIMESTAMP DEFAULT NULL,
+    
+    -- Performance and analytics
+    performance_score DECIMAL(3,2) DEFAULT 0.0,
+    context_quality_score DECIMAL(3,2) DEFAULT 0.0,
+    
+    -- Indexes for efficient session management
+    INDEX idx_session_state (session_state, last_activity DESC),
+    INDEX idx_session_realm (realm_id, session_state),
+    INDEX idx_session_user (user_id, created_at DESC),
+    INDEX idx_session_activity (last_activity DESC),
+    INDEX idx_session_semantic (enable_semantic_indexing, last_semantic_update),
+    INDEX idx_session_priority (priority, session_state)
+) ENGINE=InnoDB;
+
+-- Session Activity Entries with Semantic Context
+CREATE TABLE IF NOT EXISTS megamind_session_entries (
+    entry_id VARCHAR(50) PRIMARY KEY,
+    session_id VARCHAR(50) NOT NULL,
+    
+    -- Entry classification and metadata
+    entry_type ENUM('query', 'operation', 'result', 'context_switch', 'error', 'system_event') NOT NULL,
+    operation_type VARCHAR(100) DEFAULT NULL,
+    entry_content TEXT NOT NULL,
+    
+    -- Token management for sentence-transformers
+    content_tokens INT DEFAULT 0,
+    content_truncated BOOLEAN DEFAULT FALSE,
+    original_content_hash VARCHAR(64) DEFAULT NULL,
+    
+    -- Semantic indexing and relationships
+    semantic_summary TEXT DEFAULT NULL,
+    related_chunk_ids JSON DEFAULT NULL,
+    context_relevance_score DECIMAL(3,2) DEFAULT 0.0,
+    
+    -- Entry hierarchy and sequence
+    parent_entry_id VARCHAR(50) DEFAULT NULL,
+    entry_sequence INT NOT NULL,
+    conversation_turn INT DEFAULT 1,
+    
+    -- Performance and quality metrics
+    processing_time_ms INT DEFAULT 0,
+    success_indicator BOOLEAN DEFAULT TRUE,
+    quality_score DECIMAL(3,2) DEFAULT 0.0,
+    
+    -- Temporal data
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Metadata and additional context
+    entry_metadata JSON DEFAULT NULL,
+    user_feedback JSON DEFAULT NULL,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (session_id) REFERENCES megamind_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_entry_id) REFERENCES megamind_session_entries(entry_id) ON DELETE SET NULL,
+    
+    -- Indexes for efficient entry management
+    INDEX idx_entries_session (session_id, entry_sequence),
+    INDEX idx_entries_type (entry_type, created_at DESC),
+    INDEX idx_entries_sequence (session_id, conversation_turn, entry_sequence),
+    INDEX idx_entries_semantic (context_relevance_score DESC, created_at DESC),
+    INDEX idx_entries_parent (parent_entry_id, entry_sequence),
+    INDEX idx_entries_tokens (content_tokens, content_truncated),
+    INDEX idx_entries_performance (processing_time_ms DESC, success_indicator)
+) ENGINE=InnoDB;
+
+-- Session Embeddings for Semantic Search and Context Preservation
+CREATE TABLE IF NOT EXISTS megamind_session_embeddings (
+    embedding_id VARCHAR(50) PRIMARY KEY,
+    session_id VARCHAR(50) NOT NULL,
+    entry_id VARCHAR(50) DEFAULT NULL,
+    
+    -- Embedding metadata
+    embedding_type ENUM('session_summary', 'entry_content', 'context_window', 'conversation_turn') NOT NULL,
+    content_source TEXT NOT NULL,
+    content_tokens INT NOT NULL,
+    
+    -- Token-aware content strategy (128 optimal, 256 hard limit)
+    token_limit_applied INT DEFAULT 128,
+    content_truncated BOOLEAN DEFAULT FALSE,
+    truncation_strategy ENUM('head', 'tail', 'middle', 'smart_summary') DEFAULT 'smart_summary',
+    
+    -- Vector embedding storage
+    embedding_vector JSON NOT NULL,
+    model_name VARCHAR(100) DEFAULT 'sentence-transformers/all-MiniLM-L6-v2',
+    embedding_dimension INT DEFAULT 384,
+    
+    -- Quality and relevance metrics
+    embedding_quality_score DECIMAL(3,2) DEFAULT 0.0,
+    semantic_density DECIMAL(3,2) DEFAULT 0.0,
+    context_preservation_score DECIMAL(3,2) DEFAULT 0.0,
+    
+    -- Temporal and lifecycle data
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    access_count INT DEFAULT 0,
+    
+    -- Multi-level embedding strategy support
+    aggregation_level ENUM('entry', 'turn', 'session', 'cross_session') DEFAULT 'entry',
+    parent_embedding_id VARCHAR(50) DEFAULT NULL,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (session_id) REFERENCES megamind_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (entry_id) REFERENCES megamind_session_entries(entry_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_embedding_id) REFERENCES megamind_session_embeddings(embedding_id) ON DELETE SET NULL,
+    
+    -- Indexes for semantic search and retrieval
+    INDEX idx_session_embeddings_session (session_id, embedding_type),
+    INDEX idx_session_embeddings_entry (entry_id, embedding_type),
+    INDEX idx_session_embeddings_quality (embedding_quality_score DESC, semantic_density DESC),
+    INDEX idx_session_embeddings_access (access_count DESC, last_accessed DESC),
+    INDEX idx_session_embeddings_tokens (content_tokens, token_limit_applied),
+    INDEX idx_session_embeddings_hierarchy (parent_embedding_id, aggregation_level),
+    INDEX idx_session_embeddings_model (model_name, embedding_dimension)
+) ENGINE=InnoDB;
+
+-- Session Context Windows for Dynamic Context Assembly
+CREATE TABLE IF NOT EXISTS megamind_session_context_windows (
+    window_id VARCHAR(50) PRIMARY KEY,
+    session_id VARCHAR(50) NOT NULL,
+    
+    -- Context window metadata
+    window_type ENUM('conversation', 'operation_sequence', 'semantic_cluster', 'temporal_window') NOT NULL,
+    window_size INT NOT NULL,
+    start_entry_id VARCHAR(50) NOT NULL,
+    end_entry_id VARCHAR(50) NOT NULL,
+    
+    -- Content and token management
+    aggregated_content TEXT NOT NULL,
+    total_tokens INT NOT NULL,
+    content_summary TEXT DEFAULT NULL,
+    
+    -- Semantic coherence metrics
+    coherence_score DECIMAL(3,2) DEFAULT 0.0,
+    relevance_score DECIMAL(3,2) DEFAULT 0.0,
+    context_quality DECIMAL(3,2) DEFAULT 0.0,
+    
+    -- Window relationships and hierarchy
+    parent_window_id VARCHAR(50) DEFAULT NULL,
+    child_windows_count INT DEFAULT 0,
+    
+    -- Lifecycle and usage tracking
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    usage_count INT DEFAULT 0,
+    
+    -- Foreign key constraints
+    FOREIGN KEY (session_id) REFERENCES megamind_sessions(session_id) ON DELETE CASCADE,
+    FOREIGN KEY (start_entry_id) REFERENCES megamind_session_entries(entry_id) ON DELETE CASCADE,
+    FOREIGN KEY (end_entry_id) REFERENCES megamind_session_entries(entry_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_window_id) REFERENCES megamind_session_context_windows(window_id) ON DELETE SET NULL,
+    
+    -- Indexes for context window management
+    INDEX idx_context_windows_session (session_id, window_type),
+    INDEX idx_context_windows_range (start_entry_id, end_entry_id),
+    INDEX idx_context_windows_quality (coherence_score DESC, relevance_score DESC),
+    INDEX idx_context_windows_usage (usage_count DESC, last_used DESC),
+    INDEX idx_context_windows_tokens (total_tokens, window_size),
+    INDEX idx_context_windows_hierarchy (parent_window_id, child_windows_count)
+) ENGINE=InnoDB;
+
+-- ================================================================
+-- SAMPLE DATA FOR ENHANCED SESSION SYSTEM TESTING
+-- ================================================================
+
+-- Insert sample session for testing the new session system
+INSERT IGNORE INTO megamind_sessions (
+    session_id, session_name, user_id, realm_id, project_context, 
+    session_state, session_config, priority, enable_semantic_indexing, 
+    content_token_limit, total_entries, created_at
+) VALUES (
+    'test_session_001', 
+    'Sample Development Session', 
+    'test_user', 
+    'MegaMind_MCP', 
+    'Enhanced Session System Development',
+    'active',
+    '{"session_type": "development", "features": ["semantic_indexing", "token_management"]}',
+    'high',
+    TRUE,
+    128,
+    0,
+    CURRENT_TIMESTAMP
+);
+
+-- Insert sample session entry
+INSERT IGNORE INTO megamind_session_entries (
+    entry_id, session_id, entry_type, operation_type, entry_content,
+    content_tokens, semantic_summary, entry_sequence, conversation_turn,
+    processing_time_ms, success_indicator, quality_score, created_at
+) VALUES (
+    'entry_001',
+    'test_session_001',
+    'query',
+    'search_chunks',
+    'Search for database schema information related to session management',
+    12,
+    'User searching for session management database schema details',
+    1,
+    1,
+    250,
+    TRUE,
+    0.85,
+    CURRENT_TIMESTAMP
+);
