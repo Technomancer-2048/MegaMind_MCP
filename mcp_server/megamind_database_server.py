@@ -848,6 +848,10 @@ class MCPServer:
         self.session_manager = None
         self.enhanced_functions = None
         self._init_phase2_components()
+        
+        # Initialize Phase 3 components
+        self.phase3_functions = None
+        self._init_phase3_components()
     
     def _init_phase2_components(self):
         """Initialize Phase 2 components for enhanced embedding functions"""
@@ -871,6 +875,21 @@ class MCPServer:
             logger.warning("Enhanced embedding functions will not be available")
             self.session_manager = None
             self.enhanced_functions = None
+    
+    def _init_phase3_components(self):
+        """Initialize Phase 3 components for knowledge management and session tracking"""
+        try:
+            # Import Phase 3 functions
+            from phase3_functions import Phase3Functions
+            
+            # Initialize Phase 3 functions
+            self.phase3_functions = Phase3Functions(self.db_manager)
+            logger.info("Phase 3 knowledge management and session tracking functions initialized")
+            
+        except Exception as e:
+            logger.warning(f"Phase 3 components initialization failed: {e}")
+            logger.warning("Knowledge management functions will not be available")
+            self.phase3_functions = None
     
     def get_tools_list(self) -> List[Dict[str, Any]]:
         """Get the complete list of MCP tools for both initialize and tools/list responses"""
@@ -1225,6 +1244,135 @@ class MCPServer:
                     "type": "object",
                     "properties": {
                         "session_id": {"type": "string", "description": "Session ID"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            # Phase 3: Knowledge Management Functions
+            {
+                "name": "mcp__megamind__knowledge_ingest_document",
+                "description": "Ingest a knowledge document into the system",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "document_path": {"type": "string", "description": "Path to the document to ingest"},
+                        "title": {"type": "string", "description": "Optional document title"},
+                        "knowledge_type": {"type": "string", "description": "Type of knowledge (documentation, code_pattern, etc.)"},
+                        "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags for categorization"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"}
+                    },
+                    "required": ["document_path"]
+                }
+            },
+            {
+                "name": "mcp__megamind__knowledge_discover_relationships",
+                "description": "Discover relationships between knowledge chunks",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "Optional list of chunk IDs to analyze"},
+                        "similarity_threshold": {"type": "number", "default": 0.7, "description": "Threshold for semantic similarity"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__knowledge_optimize_retrieval",
+                "description": "Optimize knowledge retrieval based on usage patterns",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "usage_window_days": {"type": "integer", "default": 7, "description": "Days of usage data to analyze"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__knowledge_get_related",
+                "description": "Get chunks related to a given chunk",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Source chunk ID"},
+                        "relationship_types": {"type": "array", "items": {"type": "string"}, "description": "Optional filter for relationship types"},
+                        "max_depth": {"type": "integer", "default": 2, "description": "Maximum depth to traverse"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"}
+                    },
+                    "required": ["chunk_id"]
+                }
+            },
+            # Phase 3: Session Tracking Functions
+            {
+                "name": "mcp__megamind__session_create_operational",
+                "description": "Create a new operational tracking session",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_type": {"type": "string", "default": "general", "description": "Type of session"},
+                        "user_id": {"type": "string", "description": "Optional user identifier"},
+                        "description": {"type": "string", "description": "Optional session description"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__session_track_action",
+                "description": "Track an action in the operational session",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"},
+                        "action_type": {"type": "string", "description": "Type of action"},
+                        "description": {"type": "string", "description": "Human-readable description"},
+                        "details": {"type": "object", "description": "Optional action details"},
+                        "priority": {"type": "string", "description": "Optional priority level"}
+                    },
+                    "required": ["session_id", "action_type", "description"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_get_recap",
+                "description": "Get a recap of the operational session",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_prime_context",
+                "description": "Prime context for session resumption",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_list_recent",
+                "description": "List recent operational sessions",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {"type": "string", "description": "Optional filter by user"},
+                        "limit": {"type": "integer", "default": 10, "description": "Maximum number of sessions to return"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__session_close",
+                "description": "Close an operational session",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session identifier"}
                     },
                     "required": ["session_id"]
                 }
@@ -1859,6 +2007,295 @@ class MCPServer:
                         }
                     
                     result = await self.enhanced_functions.session_complete(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                # Phase 3: Knowledge Management Functions
+                elif tool_name == 'mcp__megamind__knowledge_ingest_document':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Knowledge management functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.knowledge_ingest_document(
+                        document_path=tool_args.get('document_path', ''),
+                        title=tool_args.get('title'),
+                        knowledge_type=tool_args.get('knowledge_type'),
+                        tags=tool_args.get('tags'),
+                        session_id=tool_args.get('session_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__knowledge_discover_relationships':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Knowledge management functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.knowledge_discover_relationships(
+                        chunk_ids=tool_args.get('chunk_ids'),
+                        similarity_threshold=tool_args.get('similarity_threshold', 0.7),
+                        session_id=tool_args.get('session_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__knowledge_optimize_retrieval':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Knowledge management functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.knowledge_optimize_retrieval(
+                        usage_window_days=tool_args.get('usage_window_days', 7),
+                        session_id=tool_args.get('session_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__knowledge_get_related':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Knowledge management functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.knowledge_get_related(
+                        chunk_id=tool_args.get('chunk_id', ''),
+                        relationship_types=tool_args.get('relationship_types'),
+                        max_depth=tool_args.get('max_depth', 2),
+                        session_id=tool_args.get('session_id')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                # Phase 3: Session Tracking Functions
+                elif tool_name == 'mcp__megamind__session_create_operational':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_create_operational(
+                        session_type=tool_args.get('session_type', 'general'),
+                        user_id=tool_args.get('user_id'),
+                        description=tool_args.get('description')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_track_action':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_track_action(
+                        session_id=tool_args.get('session_id', ''),
+                        action_type=tool_args.get('action_type', ''),
+                        description=tool_args.get('description', ''),
+                        details=tool_args.get('details'),
+                        priority=tool_args.get('priority')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_get_recap':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_get_recap(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_prime_context':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_prime_context(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_list_recent':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_list_recent(
+                        user_id=tool_args.get('user_id'),
+                        limit=tool_args.get('limit', 10)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_close':
+                    if not self.phase3_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Session tracking functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase3_functions.session_close(
                         session_id=tool_args.get('session_id', '')
                     )
                     return {

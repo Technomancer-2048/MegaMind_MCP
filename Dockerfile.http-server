@@ -49,6 +49,13 @@ COPY mcp_server/promotion_manager.py ./mcp_server/
 COPY mcp_server/realm_security_validator.py ./mcp_server/
 COPY mcp_server/init_schema.sql ./mcp_server/
 
+# Copy Phase 2 Enhanced Embedding System components
+COPY mcp_server/session_manager.py ./mcp_server/
+COPY mcp_server/enhanced_embedding_functions.py ./mcp_server/
+
+# Copy Phase 1 content processing libraries
+COPY libraries/ ./libraries/
+
 # Copy Phase 3 security components
 COPY mcp_server/enhanced_security_pipeline.py ./mcp_server/
 COPY mcp_server/dynamic_realm_validator.py ./mcp_server/

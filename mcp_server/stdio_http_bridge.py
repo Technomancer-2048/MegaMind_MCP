@@ -35,8 +35,11 @@ class OptimizedSTDIOHttpBridge:
     """STDIO-to-HTTP bridge with non-blocking initialization and environment config"""
     
     def __init__(self):
-        # Load configuration from environment variables
-        self.http_endpoint = os.getenv('MEGAMIND_HTTP_ENDPOINT', 'http://10.255.250.22:8080/mcp/jsonrpc')
+        # Load configuration from environment variables  
+        # Default to root endpoint (Phase 3 enhancement), fallback to legacy if needed
+        self.http_endpoint = os.getenv('MEGAMIND_HTTP_ENDPOINT', 'http://10.255.250.22:8080/')
+        self.legacy_endpoint = 'http://10.255.250.22:8080/mcp/jsonrpc'
+        
         self.project_realm = os.getenv('MEGAMIND_PROJECT_REALM', 'MegaMind_MCP')
         self.project_name = os.getenv('MEGAMIND_PROJECT_NAME', 'MegaMind Context Database')
         self.default_target = os.getenv('MEGAMIND_DEFAULT_TARGET', 'PROJECT')
@@ -67,7 +70,7 @@ class OptimizedSTDIOHttpBridge:
             logger.error("Bridge initialization failed due to invalid realm configuration")
             sys.exit(1)
             
-        logger.info(f"Bridge configured: realm={self.project_realm}, timeout={self.mcp_timeout}s")
+        logger.info(f"Bridge configured: realm={self.project_realm}, endpoint={self.http_endpoint}, timeout={self.mcp_timeout}s")
         logger.debug(f"Realm config header: {self.request_headers['X-MCP-Realm-Config']}")
     
     def validate_realm_config(self) -> bool:

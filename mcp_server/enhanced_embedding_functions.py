@@ -24,7 +24,10 @@ from libraries.content_processing import (
 )
 
 # Import session management
-from .session_manager import SessionManager, SessionType, OperationType
+try:
+    from .session_manager import SessionManager, SessionType, OperationType
+except ImportError:
+    from session_manager import SessionManager, SessionType, OperationType
 
 logger = logging.getLogger(__name__)
 
@@ -431,7 +434,7 @@ class EnhancedEmbeddingFunctions:
             # Generate embeddings if service available
             embeddings_generated = 0
             if hasattr(self.db, 'embedding_service') and self.db.embedding_service:
-                embeddings = await optimizer.generate_optimized_embeddings(
+                embeddings = optimizer.generate_optimized_embeddings(
                     [chunk for _, chunk in chunks_to_process],
                     self.db.embedding_service
                 )

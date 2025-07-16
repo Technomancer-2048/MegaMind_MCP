@@ -175,8 +175,10 @@ class HTTPMCPTransport:
     
     def setup_routes(self):
         """Setup HTTP routes for MCP protocol and management"""
-        # Core MCP endpoints
-        self.app.router.add_post('/mcp/jsonrpc', self.handle_jsonrpc)
+        # Core MCP endpoints - both root and namespaced for compatibility
+        self.app.router.add_post('/', self.handle_jsonrpc)  # Root JSON-RPC endpoint
+        self.app.router.add_options('/', self.handle_options)  # Root OPTIONS for CORS
+        self.app.router.add_post('/mcp/jsonrpc', self.handle_jsonrpc)  # Legacy namespaced endpoint
         self.app.router.add_options('/mcp/jsonrpc', self.handle_options)
         
         # Health and status endpoints
@@ -710,13 +712,19 @@ class HTTPMCPTransport:
             "version": "2.0.0-http", 
             "status": "running",
             "endpoints": {
-                "jsonrpc": "/mcp/jsonrpc",
+                "jsonrpc": "/ (primary) or /mcp/jsonrpc (legacy)",
                 "health": "/mcp/health",
                 "status": "/mcp/status",
                 "realms": "/mcp/realms",
                 "api": "/mcp/api"
             },
-            "documentation": "/mcp/api"
+            "documentation": "/mcp/api",
+            "mcp_protocol": {
+                "primary_endpoint": "/",
+                "legacy_endpoint": "/mcp/jsonrpc",
+                "method": "POST",
+                "format": "JSON-RPC 2.0"
+            }
         })
     
     async def start_server(self):
