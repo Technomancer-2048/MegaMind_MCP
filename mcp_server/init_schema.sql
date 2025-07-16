@@ -735,26 +735,26 @@ CREATE TABLE IF NOT EXISTS megamind_session_metrics (
 
 -- Add session tracking to document structures
 ALTER TABLE megamind_document_structures
-ADD COLUMN IF NOT EXISTS session_id VARCHAR(64),
-ADD COLUMN IF NOT EXISTS session_metadata JSON,
-ADD INDEX IF NOT EXISTS idx_document_session (session_id);
+ADD COLUMN session_id VARCHAR(64),
+ADD COLUMN session_metadata JSON,
+ADD INDEX idx_document_session (session_id);
 
 -- Add session tracking to chunk metadata  
 ALTER TABLE megamind_chunk_metadata
-ADD COLUMN IF NOT EXISTS session_id VARCHAR(64),
-ADD COLUMN IF NOT EXISTS session_operation VARCHAR(50),
-ADD INDEX IF NOT EXISTS idx_chunk_meta_session (session_id);
+ADD COLUMN session_id VARCHAR(64),
+ADD COLUMN session_operation VARCHAR(50),
+ADD INDEX idx_chunk_meta_session (session_id);
 
 -- Add session tracking to embeddings
 ALTER TABLE megamind_entry_embeddings
-ADD COLUMN IF NOT EXISTS session_id VARCHAR(64),
-ADD COLUMN IF NOT EXISTS session_metadata JSON,
-ADD INDEX IF NOT EXISTS idx_embedding_session (session_id);
+ADD COLUMN session_id VARCHAR(64),
+ADD COLUMN session_metadata JSON,
+ADD INDEX idx_embedding_session (session_id);
 
 -- Add session tracking to quality assessments
 ALTER TABLE megamind_quality_assessments
-ADD COLUMN IF NOT EXISTS session_id VARCHAR(64),
-ADD INDEX IF NOT EXISTS idx_quality_session (session_id);
+ADD COLUMN session_id VARCHAR(64),
+ADD INDEX idx_quality_session (session_id);
 
 -- ================================================================
 -- VIEWS FOR SESSION OPERATIONS
@@ -940,5 +940,618 @@ INSERT IGNORE INTO megamind_embedding_sessions (
     0
 );
 
+-- ================================================================
+-- PHASE 3: KNOWLEDGE MANAGEMENT AND SESSION TRACKING SYSTEM
+-- Advanced knowledge organization and operational session tracking
+-- ================================================================
+
+-- 1. Knowledge Documents Table
+CREATE TABLE IF NOT EXISTS megamind_knowledge_documents (
+    document_id VARCHAR(50) PRIMARY KEY,
+    document_name VARCHAR(255) NOT NULL,
+    document_type ENUM('markdown', 'code', 'documentation', 'reference') NOT NULL,
+    source_path VARCHAR(500),
+    content_hash VARCHAR(64),
+    realm_id VARCHAR(50) NOT NULL,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_modified TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_document_realm (realm_id),
+    INDEX idx_document_type (document_type),
+    INDEX idx_document_name (document_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. Knowledge Chunks Table (extends existing chunks)
+CREATE TABLE IF NOT EXISTS megamind_knowledge_chunks (
+    chunk_id VARCHAR(50) PRIMARY KEY,
+    document_id VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    chunk_sequence INT NOT NULL,
+    chunk_type ENUM('paragraph', 'code_block', 'heading', 'list_item', 'table') NOT NULL,
+    parent_chunk_id VARCHAR(50),
+    metadata JSON,
+    quality_score DECIMAL(3,2) DEFAULT 0.0,
+    embedding_status ENUM('pending', 'generated', 'failed') DEFAULT 'pending',
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMP,
+    access_count INT DEFAULT 0,
+    FOREIGN KEY (document_id) REFERENCES megamind_knowledge_documents(document_id) ON DELETE CASCADE,
+    FOREIGN KEY (parent_chunk_id) REFERENCES megamind_knowledge_chunks(chunk_id),
+    INDEX idx_kc_document (document_id),
+    INDEX idx_kc_sequence (document_id, chunk_sequence),
+    INDEX idx_kc_parent (parent_chunk_id),
+    INDEX idx_kc_quality (quality_score DESC),
+    INDEX idx_kc_embedding_status (embedding_status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. Knowledge Relationships Table
+CREATE TABLE IF NOT EXISTS megamind_knowledge_relationships (
+    relationship_id VARCHAR(50) PRIMARY KEY,
+    source_chunk_id VARCHAR(50) NOT NULL,
+    target_chunk_id VARCHAR(50) NOT NULL,
+    relationship_type ENUM('references', 'implements', 'extends', 'contradicts', 'updates', 'examples') NOT NULL,
+    confidence_score DECIMAL(3,2) DEFAULT 0.0,
+    discovered_by ENUM('ai', 'user', 'system') DEFAULT 'system',
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (source_chunk_id) REFERENCES megamind_knowledge_chunks(chunk_id) ON DELETE CASCADE,
+    FOREIGN KEY (target_chunk_id) REFERENCES megamind_knowledge_chunks(chunk_id) ON DELETE CASCADE,
+    INDEX idx_kr_source (source_chunk_id),
+    INDEX idx_kr_target (target_chunk_id),
+    INDEX idx_kr_type (relationship_type),
+    INDEX idx_kr_confidence (confidence_score DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. Knowledge Clusters Table
+CREATE TABLE IF NOT EXISTS megamind_knowledge_clusters (
+    cluster_id VARCHAR(50) PRIMARY KEY,
+    cluster_name VARCHAR(255) NOT NULL,
+    cluster_type ENUM('topic', 'semantic', 'functional', 'temporal') NOT NULL,
+    centroid_chunk_id VARCHAR(50),
+    member_count INT DEFAULT 0,
+    coherence_score DECIMAL(3,2) DEFAULT 0.0,
+    metadata JSON,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_cluster_type (cluster_type),
+    INDEX idx_cluster_coherence (coherence_score DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. Operational Sessions Table
+CREATE TABLE IF NOT EXISTS megamind_operational_sessions (
+    session_id VARCHAR(50) PRIMARY KEY,
+    session_type ENUM('development', 'analysis', 'support', 'learning') NOT NULL,
+    user_id VARCHAR(100),
+    realm_id VARCHAR(50) NOT NULL,
+    start_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    end_time TIMESTAMP,
+    status ENUM('active', 'completed', 'abandoned') DEFAULT 'active',
+    context_summary TEXT,
+    total_actions INT DEFAULT 0,
+    metadata JSON,
+    INDEX idx_ops_user (user_id),
+    INDEX idx_ops_realm (realm_id),
+    INDEX idx_ops_status (status),
+    INDEX idx_ops_start (start_time DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. Session Actions Table
+CREATE TABLE IF NOT EXISTS megamind_session_actions (
+    action_id VARCHAR(100) PRIMARY KEY,
+    session_id VARCHAR(50) NOT NULL,
+    action_type VARCHAR(50) NOT NULL,
+    action_target VARCHAR(255),
+    action_details JSON,
+    chunk_ids_accessed JSON,
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    duration_ms INT,
+    success BOOLEAN DEFAULT TRUE,
+    error_details TEXT,
+    FOREIGN KEY (session_id) REFERENCES megamind_operational_sessions(session_id) ON DELETE CASCADE,
+    INDEX idx_sa_session (session_id),
+    INDEX idx_sa_type (action_type),
+    INDEX idx_sa_timestamp (timestamp)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. Session Context Table
+CREATE TABLE IF NOT EXISTS megamind_session_context (
+    context_id VARCHAR(50) PRIMARY KEY,
+    session_id VARCHAR(50) NOT NULL,
+    context_type ENUM('search', 'navigation', 'modification', 'analysis') NOT NULL,
+    context_data JSON NOT NULL,
+    relevance_scores JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_id) REFERENCES megamind_operational_sessions(session_id) ON DELETE CASCADE,
+    INDEX idx_sc_session (session_id),
+    INDEX idx_sc_type (context_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 8. Retrieval Optimization Table
+CREATE TABLE IF NOT EXISTS megamind_retrieval_optimization (
+    optimization_id VARCHAR(50) PRIMARY KEY,
+    query_pattern VARCHAR(500) NOT NULL,
+    optimized_chunks JSON NOT NULL,
+    performance_gain DECIMAL(5,2),
+    usage_count INT DEFAULT 0,
+    last_used TIMESTAMP,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_ro_pattern (query_pattern),
+    INDEX idx_ro_usage (usage_count DESC),
+    INDEX idx_ro_performance (performance_gain DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. Knowledge Usage Analytics Table
+CREATE TABLE IF NOT EXISTS megamind_knowledge_usage (
+    usage_id VARCHAR(50) PRIMARY KEY,
+    chunk_id VARCHAR(50) NOT NULL,
+    session_id VARCHAR(50),
+    access_type ENUM('search', 'direct', 'relationship', 'suggestion') NOT NULL,
+    relevance_score DECIMAL(3,2),
+    user_feedback ENUM('helpful', 'not_helpful', 'neutral'),
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_id) REFERENCES megamind_knowledge_chunks(chunk_id) ON DELETE CASCADE,
+    INDEX idx_ku_chunk (chunk_id),
+    INDEX idx_ku_session (session_id),
+    INDEX idx_ku_timestamp (timestamp DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ================================================================
+-- PHASE 3 VIEWS
+-- ================================================================
+
+-- View: Active Knowledge Relationships
+CREATE OR REPLACE VIEW megamind_active_relationships_view AS
+SELECT 
+    kr.relationship_type,
+    COUNT(*) as relationship_count,
+    AVG(kr.confidence_score) as avg_confidence,
+    COUNT(DISTINCT kr.source_chunk_id) as unique_sources,
+    COUNT(DISTINCT kr.target_chunk_id) as unique_targets
+FROM megamind_knowledge_relationships kr
+GROUP BY kr.relationship_type;
+
+-- View: Session Performance Metrics
+CREATE OR REPLACE VIEW megamind_session_performance_view AS
+SELECT 
+    os.session_id,
+    os.session_type,
+    os.user_id,
+    os.total_actions,
+    COUNT(DISTINCT sa.action_id) as recorded_actions,
+    AVG(sa.duration_ms) as avg_action_duration,
+    SUM(CASE WHEN sa.success = FALSE THEN 1 ELSE 0 END) as failed_actions,
+    TIMESTAMPDIFF(MINUTE, os.start_time, COALESCE(os.end_time, NOW())) as session_duration_minutes
+FROM megamind_operational_sessions os
+LEFT JOIN megamind_session_actions sa ON os.session_id = sa.session_id
+GROUP BY os.session_id;
+
+-- View: Knowledge Chunk Performance
+CREATE OR REPLACE VIEW megamind_chunk_performance_view AS
+SELECT 
+    kc.chunk_id,
+    kc.document_id,
+    kc.quality_score,
+    kc.access_count,
+    COUNT(DISTINCT ku.session_id) as unique_sessions,
+    AVG(ku.relevance_score) as avg_relevance,
+    SUM(CASE WHEN ku.user_feedback = 'helpful' THEN 1 ELSE 0 END) as helpful_count,
+    SUM(CASE WHEN ku.user_feedback = 'not_helpful' THEN 1 ELSE 0 END) as not_helpful_count
+FROM megamind_knowledge_chunks kc
+LEFT JOIN megamind_knowledge_usage ku ON kc.chunk_id = ku.chunk_id
+GROUP BY kc.chunk_id;
+
+-- ================================================================
+-- PHASE 3 STORED PROCEDURES
+-- ================================================================
+
+DELIMITER //
+
+-- Procedure: Create knowledge ingestion session
+CREATE PROCEDURE sp_create_knowledge_session(
+    IN p_document_path VARCHAR(500),
+    IN p_document_type VARCHAR(50),
+    IN p_realm_id VARCHAR(50),
+    IN p_user_id VARCHAR(100),
+    OUT p_document_id VARCHAR(50),
+    OUT p_session_id VARCHAR(50)
+)
+BEGIN
+    -- Generate IDs
+    SET p_document_id = CONCAT('doc_', MD5(CONCAT(p_document_path, NOW())));
+    SET p_session_id = CONCAT('sess_', MD5(CONCAT(p_user_id, NOW())));
+    
+    -- Create document record
+    INSERT INTO megamind_knowledge_documents (
+        document_id, document_name, document_type, source_path, realm_id
+    ) VALUES (
+        p_document_id, 
+        SUBSTRING_INDEX(p_document_path, '/', -1),
+        p_document_type,
+        p_document_path,
+        p_realm_id
+    );
+    
+    -- Create operational session
+    INSERT INTO megamind_operational_sessions (
+        session_id, session_type, user_id, realm_id
+    ) VALUES (
+        p_session_id, 'development', p_user_id, p_realm_id
+    );
+END//
+
+-- Procedure: Track chunk access and update analytics
+CREATE PROCEDURE sp_track_chunk_access(
+    IN p_chunk_id VARCHAR(50),
+    IN p_session_id VARCHAR(50),
+    IN p_access_type VARCHAR(50),
+    IN p_relevance_score DECIMAL(3,2)
+)
+BEGIN
+    -- Update chunk access metrics
+    UPDATE megamind_knowledge_chunks
+    SET 
+        last_accessed = NOW(),
+        access_count = access_count + 1
+    WHERE chunk_id = p_chunk_id;
+    
+    -- Record usage analytics
+    INSERT INTO megamind_knowledge_usage (
+        usage_id, chunk_id, session_id, access_type, relevance_score
+    ) VALUES (
+        CONCAT('usage_', MD5(CONCAT(p_chunk_id, p_session_id, NOW()))),
+        p_chunk_id, p_session_id, p_access_type, p_relevance_score
+    );
+END//
+
+-- Procedure: Complete operational session
+CREATE PROCEDURE sp_complete_operational_session(
+    IN p_session_id VARCHAR(50),
+    IN p_context_summary TEXT
+)
+BEGIN
+    UPDATE megamind_operational_sessions
+    SET 
+        end_time = NOW(),
+        status = 'completed',
+        context_summary = p_context_summary
+    WHERE session_id = p_session_id;
+END//
+
+DELIMITER ;
+
+-- ================================================================
+-- PHASE 3 INDEXES
+-- ================================================================
+
+-- Performance indexes for knowledge management
+CREATE INDEX idx_chunk_access_pattern ON megamind_knowledge_chunks(last_accessed, access_count DESC);
+CREATE INDEX idx_relationship_discovery ON megamind_knowledge_relationships(discovered_by, created_date DESC);
+CREATE INDEX idx_cluster_members ON megamind_knowledge_clusters(member_count DESC, coherence_score DESC);
+CREATE INDEX idx_session_activity ON megamind_operational_sessions(realm_id, start_time DESC);
+CREATE INDEX idx_usage_feedback ON megamind_knowledge_usage(user_feedback, timestamp DESC);
+
+-- ================================================================
+-- PHASE 3 INITIAL CONFIGURATION
+-- ================================================================
+
+INSERT IGNORE INTO megamind_system_config (config_id, config_key, config_value, config_type, description, is_system_config) VALUES
+    ('cfg_025', 'phase3.knowledge.min_chunk_quality', '0.6', 'number', 'Minimum quality score for knowledge chunks', TRUE),
+    ('cfg_026', 'phase3.knowledge.relationship_threshold', '0.7', 'number', 'Confidence threshold for relationship discovery', TRUE),
+    ('cfg_027', 'phase3.knowledge.cluster_min_size', '5', 'number', 'Minimum cluster size for knowledge grouping', TRUE),
+    ('cfg_028', 'phase3.session.idle_timeout_minutes', '30', 'number', 'Session idle timeout in minutes', TRUE),
+    ('cfg_029', 'phase3.session.max_duration_hours', '8', 'number', 'Maximum session duration in hours', TRUE),
+    ('cfg_030', 'phase3.optimization.cache_patterns', 'true', 'boolean', 'Enable query pattern caching', TRUE),
+    ('cfg_031', 'phase3.analytics.min_feedback_count', '3', 'number', 'Minimum feedback count for analytics', TRUE);
+
+-- ================================================================
+-- PHASE 4: AI ENHANCEMENT SYSTEM
+-- Quality Improvement, Adaptive Learning, and Performance Optimization
+-- ================================================================
+
+-- 1. Quality Improvement History
+CREATE TABLE IF NOT EXISTS megamind_quality_improvements (
+    improvement_id VARCHAR(50) PRIMARY KEY,
+    chunk_id VARCHAR(50) NOT NULL,
+    improvement_type ENUM('readability', 'technical_accuracy', 'completeness', 'coherence', 'relevance') NOT NULL,
+    original_score FLOAT NOT NULL,
+    improved_score FLOAT,
+    improvement_status ENUM('suggested', 'applied', 'rejected', 'pending') DEFAULT 'suggested',
+    suggestion TEXT NOT NULL,
+    implementation TEXT,
+    automated BOOLEAN DEFAULT FALSE,
+    confidence FLOAT DEFAULT 0.5,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    applied_date TIMESTAMP NULL,
+    session_id VARCHAR(50),
+    INDEX idx_chunk (chunk_id),
+    INDEX idx_status (improvement_status),
+    INDEX idx_created (created_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 2. User Feedback Table
+CREATE TABLE IF NOT EXISTS megamind_user_feedback (
+    feedback_id VARCHAR(50) PRIMARY KEY,
+    feedback_type ENUM('chunk_quality', 'boundary_accuracy', 'retrieval_success', 'manual_correction') NOT NULL,
+    target_id VARCHAR(50) NOT NULL,
+    rating FLOAT NOT NULL CHECK (rating >= 0 AND rating <= 1),
+    details JSON,
+    user_id VARCHAR(100),
+    session_id VARCHAR(50),
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_target (target_id),
+    INDEX idx_type (feedback_type),
+    INDEX idx_created (created_date),
+    INDEX idx_user (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 3. Learning Patterns Table
+CREATE TABLE IF NOT EXISTS megamind_learning_patterns (
+    pattern_id VARCHAR(50) PRIMARY KEY,
+    pattern_type ENUM('boundary', 'quality', 'chunking', 'retrieval') NOT NULL,
+    pattern_data JSON NOT NULL,
+    confidence FLOAT DEFAULT 0.5,
+    occurrence_count INT DEFAULT 1,
+    success_rate FLOAT DEFAULT 0.5,
+    last_seen TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_type (pattern_type),
+    INDEX idx_confidence (confidence DESC),
+    INDEX idx_success_rate (success_rate DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 4. Adaptive Strategies Table
+CREATE TABLE IF NOT EXISTS megamind_adaptive_strategies (
+    strategy_id VARCHAR(50) PRIMARY KEY,
+    strategy_name VARCHAR(100) NOT NULL,
+    strategy_type ENUM('chunking', 'embedding', 'retrieval', 'curation') NOT NULL,
+    preferred_chunk_size INT DEFAULT 512,
+    boundary_patterns JSON,
+    quality_weights JSON,
+    confidence FLOAT DEFAULT 0.5,
+    performance_metrics JSON,
+    is_active BOOLEAN DEFAULT FALSE,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_type (strategy_type),
+    INDEX idx_active (is_active),
+    INDEX idx_confidence (confidence DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 5. Curation Decisions Table
+CREATE TABLE IF NOT EXISTS megamind_curation_decisions (
+    decision_id VARCHAR(50) PRIMARY KEY,
+    chunk_id VARCHAR(50) NOT NULL,
+    action ENUM('approve', 'reject', 'improve', 'merge', 'split', 'archive', 'promote') NOT NULL,
+    reason TEXT NOT NULL,
+    confidence FLOAT DEFAULT 0.5,
+    parameters JSON,
+    workflow_id VARCHAR(50),
+    automated BOOLEAN DEFAULT FALSE,
+    applied BOOLEAN DEFAULT FALSE,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    applied_date TIMESTAMP NULL,
+    session_id VARCHAR(50),
+    INDEX idx_chunk (chunk_id),
+    INDEX idx_action (action),
+    INDEX idx_workflow (workflow_id),
+    INDEX idx_created (created_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 6. Curation Workflows Table
+CREATE TABLE IF NOT EXISTS megamind_curation_workflows (
+    workflow_id VARCHAR(50) PRIMARY KEY,
+    workflow_name VARCHAR(100) NOT NULL,
+    workflow_type ENUM('standard_quality', 'fast_track', 'remediation', 'custom') DEFAULT 'standard_quality',
+    stages JSON NOT NULL,
+    rules JSON,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_used TIMESTAMP NULL,
+    INDEX idx_type (workflow_type),
+    INDEX idx_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 7. Performance Metrics Table (Enhanced for Phase 4)
+-- Note: This table already exists but we're adding new metric types for Phase 4
+ALTER TABLE megamind_performance_metrics 
+MODIFY COLUMN metric_type ENUM('query_time', 'chunk_access', 'session_length', 'error_rate', 'access_tracking', 
+                              'latency', 'throughput', 'memory_usage', 'cache_hit_rate', 'quality_score') NOT NULL;
+
+-- 8. Optimization History Table
+CREATE TABLE IF NOT EXISTS megamind_optimization_history (
+    optimization_id VARCHAR(50) PRIMARY KEY,
+    optimization_type ENUM('batch_size', 'cache_strategy', 'model_selection', 'preprocessing', 'indexing') NOT NULL,
+    original_config JSON NOT NULL,
+    optimized_config JSON NOT NULL,
+    improvement_metrics JSON,
+    confidence FLOAT DEFAULT 0.5,
+    applied BOOLEAN DEFAULT FALSE,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    applied_date TIMESTAMP NULL,
+    session_id VARCHAR(50),
+    INDEX idx_type (optimization_type),
+    INDEX idx_applied (applied),
+    INDEX idx_created (created_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 9. Embedding Cache Table (for performance optimization)
+CREATE TABLE IF NOT EXISTS megamind_embedding_cache (
+    cache_id VARCHAR(50) PRIMARY KEY,
+    chunk_id VARCHAR(50) NOT NULL,
+    model VARCHAR(100) NOT NULL,
+    embedding_vector JSON NOT NULL,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    access_count INT DEFAULT 1,
+    expires_date TIMESTAMP NULL,
+    UNIQUE KEY unique_chunk_model (chunk_id, model),
+    INDEX idx_chunk (chunk_id),
+    INDEX idx_model (model),
+    INDEX idx_last_accessed (last_accessed),
+    INDEX idx_expires (expires_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- 10. AI Enhancement Reports Table
+CREATE TABLE IF NOT EXISTS megamind_ai_reports (
+    report_id VARCHAR(50) PRIMARY KEY,
+    report_type ENUM('quality_improvement', 'learning_insights', 'curation_summary', 'optimization_report') NOT NULL,
+    period_start TIMESTAMP NOT NULL,
+    period_end TIMESTAMP NOT NULL,
+    report_data JSON NOT NULL,
+    summary TEXT,
+    created_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_by VARCHAR(100),
+    INDEX idx_type (report_type),
+    INDEX idx_period (period_start, period_end),
+    INDEX idx_created (created_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ================================================================
+-- PHASE 4 VIEWS FOR AI ENHANCEMENT ANALYTICS
+-- ================================================================
+
+-- View: Quality improvement effectiveness
+CREATE OR REPLACE VIEW megamind_quality_effectiveness_view AS
+SELECT 
+    qi.improvement_type,
+    COUNT(*) as total_improvements,
+    SUM(CASE WHEN qi.improvement_status = 'applied' THEN 1 ELSE 0 END) as applied_count,
+    AVG(CASE WHEN qi.improvement_status = 'applied' THEN qi.improved_score - qi.original_score ELSE 0 END) as avg_score_increase,
+    AVG(qi.confidence) as avg_confidence,
+    SUM(CASE WHEN qi.automated = TRUE THEN 1 ELSE 0 END) as automated_count
+FROM megamind_quality_improvements qi
+GROUP BY qi.improvement_type;
+
+-- View: Learning pattern effectiveness
+CREATE OR REPLACE VIEW megamind_learning_effectiveness_view AS
+SELECT 
+    lp.pattern_type,
+    COUNT(*) as pattern_count,
+    AVG(lp.confidence) as avg_confidence,
+    AVG(lp.success_rate) as avg_success_rate,
+    SUM(lp.occurrence_count) as total_occurrences,
+    MAX(lp.last_seen) as most_recent_use
+FROM megamind_learning_patterns lp
+GROUP BY lp.pattern_type;
+
+-- View: Curation workflow performance
+CREATE OR REPLACE VIEW megamind_curation_performance_view AS
+SELECT 
+    cw.workflow_id,
+    cw.workflow_name,
+    cw.workflow_type,
+    COUNT(cd.decision_id) as total_decisions,
+    SUM(CASE WHEN cd.action = 'approve' THEN 1 ELSE 0 END) as approvals,
+    SUM(CASE WHEN cd.action = 'reject' THEN 1 ELSE 0 END) as rejections,
+    SUM(CASE WHEN cd.automated = TRUE THEN 1 ELSE 0 END) as automated_decisions,
+    AVG(cd.confidence) as avg_confidence
+FROM megamind_curation_workflows cw
+LEFT JOIN megamind_curation_decisions cd ON cw.workflow_id = cd.workflow_id
+GROUP BY cw.workflow_id;
+
+-- ================================================================
+-- PHASE 4 STORED PROCEDURES
+-- ================================================================
+
+DELIMITER //
+
+-- Procedure: Apply quality improvement
+CREATE PROCEDURE apply_quality_improvement(
+    IN p_improvement_id VARCHAR(50),
+    IN p_session_id VARCHAR(50)
+)
+BEGIN
+    DECLARE v_chunk_id VARCHAR(50);
+    DECLARE v_implementation TEXT;
+    
+    -- Get improvement details
+    SELECT chunk_id, implementation INTO v_chunk_id, v_implementation
+    FROM megamind_quality_improvements
+    WHERE improvement_id = p_improvement_id AND improvement_status = 'suggested';
+    
+    IF v_chunk_id IS NOT NULL AND v_implementation IS NOT NULL THEN
+        -- Update chunk content (simplified - in practice would apply the implementation)
+        UPDATE megamind_knowledge_chunks
+        SET quality_score = quality_score + 0.1,
+            last_improved = CURRENT_TIMESTAMP
+        WHERE chunk_id = v_chunk_id;
+        
+        -- Update improvement status
+        UPDATE megamind_quality_improvements
+        SET improvement_status = 'applied',
+            applied_date = CURRENT_TIMESTAMP,
+            session_id = p_session_id
+        WHERE improvement_id = p_improvement_id;
+    END IF;
+END//
+
+-- Procedure: Record user feedback and trigger learning
+CREATE PROCEDURE record_feedback_and_learn(
+    IN p_feedback_type VARCHAR(50),
+    IN p_target_id VARCHAR(50),
+    IN p_rating FLOAT,
+    IN p_details JSON,
+    IN p_user_id VARCHAR(100),
+    IN p_session_id VARCHAR(50)
+)
+BEGIN
+    DECLARE v_feedback_id VARCHAR(50);
+    
+    -- Generate feedback ID
+    SET v_feedback_id = CONCAT('fb_', MD5(CONCAT(p_target_id, NOW(), RAND())));
+    
+    -- Insert feedback
+    INSERT INTO megamind_user_feedback (
+        feedback_id, feedback_type, target_id, rating, details, user_id, session_id
+    ) VALUES (
+        v_feedback_id, p_feedback_type, p_target_id, p_rating, p_details, p_user_id, p_session_id
+    );
+    
+    -- Trigger learning if threshold reached
+    IF (SELECT COUNT(*) FROM megamind_user_feedback WHERE feedback_type = p_feedback_type) % 10 = 0 THEN
+        -- In practice, this would trigger the adaptive learning engine
+        INSERT INTO megamind_ai_reports (report_id, report_type, period_start, period_end, report_data, summary)
+        VALUES (
+            CONCAT('report_', MD5(NOW())),
+            'learning_insights',
+            DATE_SUB(NOW(), INTERVAL 1 DAY),
+            NOW(),
+            JSON_OBJECT('trigger', 'feedback_threshold', 'type', p_feedback_type),
+            'Learning triggered by feedback threshold'
+        );
+    END IF;
+END//
+
+DELIMITER ;
+
+-- ================================================================
+-- PHASE 4 INDEXES FOR PERFORMANCE
+-- ================================================================
+
+CREATE INDEX idx_quality_chunk_status ON megamind_quality_improvements(chunk_id, improvement_status);
+CREATE INDEX idx_feedback_rating ON megamind_user_feedback(rating);
+CREATE INDEX idx_pattern_effectiveness ON megamind_learning_patterns(pattern_type, success_rate DESC);
+CREATE INDEX idx_cache_lookup ON megamind_embedding_cache(chunk_id, model, last_accessed DESC);
+
+-- ================================================================
+-- PHASE 4 INITIAL CONFIGURATION
+-- ================================================================
+
+-- Note: Using INSERT IGNORE to avoid conflicts with existing config
+INSERT IGNORE INTO megamind_system_config (config_id, config_key, config_value, config_type, description, is_system_config) VALUES
+    ('cfg_032', 'phase4.quality.auto_improvement_threshold', '0.8', 'number', 'Confidence threshold for automated improvements', TRUE),
+    ('cfg_033', 'phase4.learning.min_feedback_count', '10', 'number', 'Minimum feedback count before learning triggers', TRUE),
+    ('cfg_034', 'phase4.curation.default_workflow', 'standard_quality', 'string', 'Default curation workflow', TRUE),
+    ('cfg_035', 'phase4.optimization.cache_size', '10000', 'number', 'Maximum embedding cache size', TRUE),
+    ('cfg_036', 'phase4.optimization.batch_size', '32', 'number', 'Default batch size for embeddings', TRUE),
+    ('cfg_037', 'phase4.ai.quality_threshold', '0.7', 'number', 'Minimum quality score threshold', TRUE);
+
+-- Insert default workflows
+INSERT IGNORE INTO megamind_curation_workflows (workflow_id, workflow_name, workflow_type, stages) VALUES
+    ('wf_standard', 'Standard Quality Workflow', 'standard_quality', 
+     JSON_ARRAY('intake', 'quality_check', 'improvement', 'review', 'approval', 'deployment')),
+    ('wf_fast', 'Fast Track Workflow', 'fast_track',
+     JSON_ARRAY('intake', 'quality_check', 'approval', 'deployment')),
+    ('wf_remediation', 'Quality Remediation Workflow', 'remediation',
+     JSON_ARRAY('intake', 'quality_check', 'improvement', 'improvement', 'review', 'approval'));
+
 -- Schema update completion message
-SELECT 'Phase 2 Enhanced Multi-Embedding Entry System schema integrated successfully into container init schema' as status;
+SELECT 'Phase 2 Enhanced Multi-Embedding Entry System, Phase 3 Knowledge Management and Session Tracking, and Phase 4 AI Enhancement System schema integrated successfully into container init schema' as status;

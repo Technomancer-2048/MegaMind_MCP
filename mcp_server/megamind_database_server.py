@@ -852,6 +852,10 @@ class MCPServer:
         # Initialize Phase 3 components
         self.phase3_functions = None
         self._init_phase3_components()
+        
+        # Initialize Phase 4 components
+        self.phase4_functions = None
+        self._init_phase4_components()
     
     def _init_phase2_components(self):
         """Initialize Phase 2 components for enhanced embedding functions"""
@@ -890,6 +894,21 @@ class MCPServer:
             logger.warning(f"Phase 3 components initialization failed: {e}")
             logger.warning("Knowledge management functions will not be available")
             self.phase3_functions = None
+    
+    def _init_phase4_components(self):
+        """Initialize Phase 4 components for AI enhancement"""
+        try:
+            # Import Phase 4 functions
+            from phase4_functions import Phase4Functions
+            
+            # Initialize Phase 4 functions with database manager
+            self.phase4_functions = Phase4Functions(self.db_manager)
+            logger.info("Phase 4 AI enhancement functions initialized")
+            
+        except Exception as e:
+            logger.warning(f"Phase 4 components initialization failed: {e}")
+            logger.warning("AI enhancement functions will not be available")
+            self.phase4_functions = None
     
     def get_tools_list(self) -> List[Dict[str, Any]]:
         """Get the complete list of MCP tools for both initialize and tools/list responses"""
@@ -1375,6 +1394,101 @@ class MCPServer:
                         "session_id": {"type": "string", "description": "Session identifier"}
                     },
                     "required": ["session_id"]
+                }
+            },
+            # Phase 4: AI Enhancement Functions
+            {
+                "name": "mcp__megamind__ai_improve_chunk_quality",
+                "description": "Analyze chunk quality and suggest/apply improvements",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "ID of chunk to improve"},
+                        "session_id": {"type": "string", "description": "Current session ID"},
+                        "apply_automated": {"type": "boolean", "default": False, "description": "Whether to automatically apply improvements"}
+                    },
+                    "required": ["chunk_id", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_record_user_feedback",
+                "description": "Record user feedback and trigger adaptive learning",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "feedback_type": {"type": "string", "enum": ["chunk_quality", "boundary_accuracy", "retrieval_success", "manual_correction"], "description": "Type of feedback"},
+                        "target_id": {"type": "string", "description": "ID of target (chunk, document, etc.)"},
+                        "rating": {"type": "number", "minimum": 0, "maximum": 1, "description": "Rating from 0.0 to 1.0"},
+                        "details": {"type": "object", "description": "Additional feedback details"},
+                        "user_id": {"type": "string", "description": "User providing feedback"},
+                        "session_id": {"type": "string", "description": "Current session ID"}
+                    },
+                    "required": ["feedback_type", "target_id", "rating", "user_id", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_get_adaptive_strategy",
+                "description": "Get current adaptive strategy based on learned patterns",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "context": {"type": "object", "description": "Context information for strategy selection"},
+                        "session_id": {"type": "string", "description": "Current session ID"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_curate_chunks",
+                "description": "Run automated curation workflow on chunks",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs to curate"},
+                        "workflow_id": {"type": "string", "default": "standard_quality", "description": "Curation workflow to use"},
+                        "session_id": {"type": "string", "description": "Current session ID"},
+                        "auto_apply": {"type": "boolean", "default": False, "description": "Whether to automatically apply decisions"}
+                    },
+                    "required": ["chunk_ids", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_optimize_performance",
+                "description": "Optimize system performance based on usage patterns",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "optimization_type": {"type": "string", "enum": ["batch_size", "cache_strategy", "model_selection", "preprocessing"], "description": "Type of optimization"},
+                        "parameters": {"type": "object", "description": "Parameters for optimization"},
+                        "session_id": {"type": "string", "description": "Current session ID"},
+                        "apply": {"type": "boolean", "default": False, "description": "Whether to apply the optimization"}
+                    },
+                    "required": ["optimization_type", "parameters", "session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_get_performance_insights",
+                "description": "Get current performance insights and recommendations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Current session ID"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__ai_generate_enhancement_report",
+                "description": "Generate comprehensive AI enhancement report",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "report_type": {"type": "string", "enum": ["quality", "learning", "curation", "optimization"], "description": "Type of report"},
+                        "start_date": {"type": "string", "format": "date-time", "description": "Report period start"},
+                        "end_date": {"type": "string", "format": "date-time", "description": "Report period end"},
+                        "session_id": {"type": "string", "description": "Current session ID"}
+                    },
+                    "required": ["report_type", "start_date", "end_date", "session_id"]
                 }
             }
         ]
@@ -2296,6 +2410,213 @@ class MCPServer:
                         }
                     
                     result = await self.phase3_functions.session_close(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                # Phase 4: AI Enhancement Functions
+                elif tool_name == 'mcp__megamind__ai_improve_chunk_quality':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_improve_chunk_quality(
+                        chunk_id=tool_args.get('chunk_id', ''),
+                        session_id=tool_args.get('session_id', ''),
+                        apply_automated=tool_args.get('apply_automated', False)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_record_user_feedback':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_record_user_feedback(
+                        feedback_type=tool_args.get('feedback_type', ''),
+                        target_id=tool_args.get('target_id', ''),
+                        rating=tool_args.get('rating', 0.5),
+                        details=tool_args.get('details', {}),
+                        user_id=tool_args.get('user_id', ''),
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_get_adaptive_strategy':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_get_adaptive_strategy(
+                        context=tool_args.get('context', {}),
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_curate_chunks':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_curate_chunks(
+                        chunk_ids=tool_args.get('chunk_ids', []),
+                        workflow_id=tool_args.get('workflow_id', 'standard_quality'),
+                        session_id=tool_args.get('session_id', ''),
+                        auto_apply=tool_args.get('auto_apply', False)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_optimize_performance':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_optimize_performance(
+                        optimization_type=tool_args.get('optimization_type', ''),
+                        parameters=tool_args.get('parameters', {}),
+                        session_id=tool_args.get('session_id', ''),
+                        apply=tool_args.get('apply', False)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_get_performance_insights':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_get_performance_insights(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__ai_generate_enhancement_report':
+                    if not self.phase4_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "AI enhancement functions not available"
+                            }
+                        }
+                    
+                    result = await self.phase4_functions.ai_generate_enhancement_report(
+                        report_type=tool_args.get('report_type', ''),
+                        start_date=tool_args.get('start_date', ''),
+                        end_date=tool_args.get('end_date', ''),
                         session_id=tool_args.get('session_id', '')
                     )
                     return {

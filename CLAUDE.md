@@ -564,6 +564,30 @@ docker compose build megamind-mcp-server-http
 docker compose up megamind-mcp-server-http -d
 ```
 
+**IMPORTANT - Testing Requirements**:
+⚠️ **All tests MUST be run inside the container** because:
+- Database is not exposed externally (only accessible within Docker network)
+- Test files and dependencies are available only within container environment
+- JSON-RPC endpoint has been moved to root path (`/` instead of `/mcp/jsonrpc`)
+
+**Required test execution pattern**:
+```bash
+# Run tests inside the HTTP container
+docker exec megamind-mcp-server-http python3 tests/test_[phase]_functions.py
+
+# Example: Run Phase 4 tests
+docker exec megamind-mcp-server-http python3 tests/test_phase4_functions.py
+```
+
+**API Testing with Updated JSON-RPC Path**:
+```bash
+# Test MCP connectivity (JSON-RPC endpoint moved to root path)
+curl -X POST http://10.255.250.22:8080 -H "Content-Type: application/json" -d '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}'
+
+# Legacy path no longer available
+# curl -X POST http://10.255.250.22:8080/mcp/jsonrpc  # ❌ DEPRECATED
+```
+
 When implementing this system:
 1. **Database First**: All operations through database, no file system dependencies
 2. **MCP Interface**: All AI interactions through MCP function calls
