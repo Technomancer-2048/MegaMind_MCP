@@ -123,6 +123,12 @@ services:
       MEGAMIND_LOG_LEVEL: ${MEGAMIND_LOG_LEVEL:-INFO}
       MEGAMIND_DEBUG: ${MEGAMIND_DEBUG:-false}
       
+      # Phase 1 Function Consolidation Configuration
+      MEGAMIND_USE_CONSOLIDATED_FUNCTIONS: ${MEGAMIND_USE_CONSOLIDATED_FUNCTIONS:-true}
+      
+      # Phase 2 Enhanced Functions Configuration
+      MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS: ${MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS:-false}
+      
       # Model Cache Configuration
       HF_HOME: /app/.cache/huggingface
       TRANSFORMERS_CACHE: /app/.cache/huggingface

@@ -57,6 +57,14 @@ COPY mcp_server/enhanced_embedding_functions.py ./mcp_server/
 COPY mcp_server/phase3_functions.py ./mcp_server/
 COPY mcp_server/phase4_functions.py ./mcp_server/
 
+# Copy Phase 1 Function Consolidation files
+COPY mcp_server/consolidated_functions.py ./mcp_server/
+COPY mcp_server/consolidated_mcp_server.py ./mcp_server/
+
+# Copy Phase 2 Enhanced Functions files
+COPY mcp_server/phase2_enhanced_functions.py ./mcp_server/
+COPY mcp_server/phase2_enhanced_server.py ./mcp_server/
+
 # Copy Phase 1 content processing libraries
 COPY libraries/ ./libraries/
 

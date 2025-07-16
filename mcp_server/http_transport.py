@@ -7,6 +7,7 @@ Implements persistent HTTP-based MCP server with realm parameter passing through
 import json
 import logging
 import asyncio
+import os
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 from aiohttp import web, ClientSession, WSMsgType
@@ -18,6 +19,8 @@ try:
     from .realm_manager_factory import RealmManagerFactory, DynamicRealmManagerFactory, RealmContext
     from .realm_aware_database import RealmAwareMegaMindDatabase
     from .megamind_database_server import MCPServer
+    from .consolidated_mcp_server import ConsolidatedMCPServer
+    from .phase2_enhanced_server import Phase2EnhancedMCPServer
     from .enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from .dynamic_realm_validator import RealmConfigValidator
     from .dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -26,6 +29,8 @@ except ImportError:
     from realm_manager_factory import RealmManagerFactory, DynamicRealmManagerFactory, RealmContext
     from realm_aware_database import RealmAwareMegaMindDatabase
     from megamind_database_server import MCPServer
+    from consolidated_mcp_server import ConsolidatedMCPServer
+    from phase2_enhanced_server import Phase2EnhancedMCPServer
     from enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from dynamic_realm_validator import RealmConfigValidator
     from dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -345,7 +350,19 @@ class HTTPMCPTransport:
                 logger.debug(f"Using static realm manager for {realm_context.realm_id}")
             
             # Create MCP server instance for this request
-            mcp_server = MCPServer(realm_manager)
+            # Check for Phase 2 enhanced functions first, then Phase 1 consolidation
+            use_phase2_enhanced = os.getenv('MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS', 'false').lower() == 'true'
+            use_consolidated = os.getenv('MEGAMIND_USE_CONSOLIDATED_FUNCTIONS', 'true').lower() == 'true'
+            
+            if use_phase2_enhanced:
+                logger.debug("Using Phase 2 enhanced MCP server with 29 advanced functions")
+                mcp_server = Phase2EnhancedMCPServer(realm_manager)
+            elif use_consolidated:
+                logger.debug("Using consolidated MCP server with 19 master functions")
+                mcp_server = ConsolidatedMCPServer(realm_manager)
+            else:
+                logger.debug("Using original MCP server with 44 functions")
+                mcp_server = MCPServer(realm_manager)
             
             # Process MCP request
             response = await mcp_server.handle_request(data)
