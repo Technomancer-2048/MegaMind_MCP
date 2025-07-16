@@ -11,7 +11,8 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 import hashlib
 
-from content_analyzer import MarkdownElement, MarkdownElementType, SemanticBoundary, DocumentStructure
+from .content_analyzer import MarkdownElement, MarkdownElementType, SemanticBoundary, DocumentStructure
+from .sentence_splitter import SentenceSplitter
 
 logger = logging.getLogger(__name__)
 
@@ -71,6 +72,8 @@ class IntelligentChunker:
     
     def __init__(self, config: Optional[ChunkingConfig] = None):
         self.config = config or ChunkingConfig()
+        self.sentence_splitter = SentenceSplitter()
+        self.table_min_rows = 2  # Minimum rows to consider as table
         
         # Token estimation (rough approximation - 1 word ≈ 1.3 tokens)
         self.token_multiplier = 1.3
@@ -310,7 +313,18 @@ class IntelligentChunker:
                                current_tokens: int,
                                element_tokens: int,
                                boundaries: List[SemanticBoundary]) -> bool:
-        """Determine if we should start a new chunk at this element"""
+        """Enhanced version that keeps tables intact"""
+        
+        # Never split before or after a table unless necessary
+        if element.element_type == MarkdownElementType.TABLE:
+            # Check if table fits in remaining space
+            if current_tokens == 0:  # Start of chunk
+                return False
+            elif current_tokens + element_tokens <= self.config.max_tokens:
+                return False  # Table fits, don't split
+            else:
+                return True  # Table doesn't fit, start new chunk
+        
         # Always split at headings if configured
         if self.config.preserve_headings and element.element_type == MarkdownElementType.HEADING:
             return True
@@ -596,6 +610,118 @@ class IntelligentChunker:
             parts.append(' '.join(current_part))
         
         return parts
+    
+    def _split_paragraph_enhanced(self, text: str, max_tokens: int) -> List[str]:
+        """Enhanced paragraph splitting with better sentence detection"""
+        # Use the enhanced sentence splitter
+        sentences = self.sentence_splitter.split_sentences(text)
+        
+        if not sentences:
+            return [text]
+        
+        parts = []
+        current_part = []
+        current_tokens = 0
+        
+        for sentence in sentences:
+            sentence_tokens = self._estimate_tokens(sentence)
+            
+            # If single sentence exceeds max tokens, split by words
+            if sentence_tokens > max_tokens:
+                if current_part:
+                    parts.append(' '.join(current_part))
+                    current_part = []
+                
+                # Split long sentence by clauses or words
+                sub_parts = self._split_long_sentence(sentence, max_tokens)
+                parts.extend(sub_parts)
+                current_tokens = 0
+                continue
+            
+            if current_tokens + sentence_tokens > max_tokens and current_part:
+                parts.append(' '.join(current_part))
+                current_part = [sentence]
+                current_tokens = sentence_tokens
+            else:
+                current_part.append(sentence)
+                current_tokens += sentence_tokens
+        
+        if current_part:
+            parts.append(' '.join(current_part))
+        
+        return parts
+    
+    def _split_long_sentence(self, sentence: str, max_tokens: int) -> List[str]:
+        """Split a long sentence intelligently"""
+        # Try to split on clauses first
+        clause_patterns = [
+            r',\s+(?:and|but|or|nor|for|yet|so)\s+',  # Coordinating conjunctions
+            r';\s+',  # Semicolons
+            r',\s+(?:which|who|that|where|when)\s+',  # Relative clauses
+            r',\s+',  # General comma splits
+        ]
+        
+        for pattern in clause_patterns:
+            parts = re.split(f'({pattern})', sentence)
+            if len(parts) > 1:
+                # Reconstruct with delimiters
+                reconstructed = []
+                for i in range(0, len(parts), 2):
+                    if i + 1 < len(parts):
+                        reconstructed.append(parts[i] + parts[i + 1])
+                    else:
+                        reconstructed.append(parts[i])
+                
+                # Check if this gives us reasonable chunks
+                if all(self._estimate_tokens(p) <= max_tokens for p in reconstructed):
+                    return reconstructed
+        
+        # Fall back to word-based splitting
+        return self._split_by_tokens(sentence, max_tokens)
+    
+    def optimize_chunk_sizes_with_tables(self, chunks: List[Chunk]) -> List[Chunk]:
+        """Optimize chunk sizes while preserving tables"""
+        optimized = []
+        i = 0
+        
+        while i < len(chunks):
+            current_chunk = chunks[i]
+            
+            # Never merge or split table chunks
+            if current_chunk.chunk_type == ChunkType.TABLE:
+                optimized.append(current_chunk)
+                i += 1
+                continue
+            
+            # Don't merge into table chunks
+            if (i + 1 < len(chunks) and 
+                chunks[i + 1].chunk_type == ChunkType.TABLE):
+                optimized.append(current_chunk)
+                i += 1
+                continue
+            
+            # Otherwise, use standard optimization
+            if current_chunk.token_count < self.config.min_tokens and i < len(chunks) - 1:
+                next_chunk = chunks[i + 1]
+                
+                # Skip if next is a table
+                if next_chunk.chunk_type == ChunkType.TABLE:
+                    optimized.append(current_chunk)
+                    i += 1
+                    continue
+                
+                # Try to merge with next chunk
+                combined_tokens = current_chunk.token_count + next_chunk.token_count
+                if combined_tokens <= self.config.max_tokens:
+                    merged_chunk = self._merge_chunks(current_chunk, next_chunk)
+                    optimized.append(merged_chunk)
+                    i += 2
+                    continue
+            
+            optimized.append(current_chunk)
+            i += 1
+        
+        return optimized
     
     def _determine_chunk_type(self, elements: List[MarkdownElement]) -> ChunkType:
         """Determine the type of chunk based on its elements"""

@@ -11,9 +11,14 @@ import unicodedata
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
-import numpy as np
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+    np = None
 
-from intelligent_chunker import Chunk, ChunkType
+from .intelligent_chunker import Chunk, ChunkType
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +62,7 @@ class OptimizedText:
 class SimilarityMatrix:
     """Matrix of similarities between embeddings"""
     embedding_ids: List[str]
-    matrix: np.ndarray
+    matrix: Any  # np.ndarray when numpy is available
     threshold: float = 0.7
     
     def get_similar_pairs(self) -> List[Tuple[str, str, float]]:

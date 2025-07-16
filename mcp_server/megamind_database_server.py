@@ -17,6 +17,14 @@ from typing import List, Dict, Optional, Any, Union
 import mysql.connector
 from mysql.connector import pooling
 
+# Import Phase 2 components
+try:
+    from .session_manager import SessionManager
+    from .enhanced_embedding_functions import EnhancedEmbeddingFunctions
+except ImportError:
+    from session_manager import SessionManager
+    from enhanced_embedding_functions import EnhancedEmbeddingFunctions
+
 class MegaMindJSONEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles MySQL data types"""
     def default(self, obj):
@@ -764,6 +772,70 @@ def load_config():
         'pool_size': os.getenv('CONNECTION_POOL_SIZE', '10')
     }
 
+class DatabaseConnectionAdapter:
+    """Adapter to provide async context manager interface for SessionManager"""
+    
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self.project_realm = getattr(db_manager, 'project_realm', 'PROJECT')
+    
+    def connection(self):
+        """Return async context manager for database connections"""
+        return AsyncConnectionWrapper(self.db_manager)
+
+class AsyncConnectionWrapper:
+    """Async context manager wrapper for synchronous database connections"""
+    
+    def __init__(self, db_manager):
+        self.db_manager = db_manager
+        self.connection = None
+        self._cursor = None
+    
+    async def __aenter__(self):
+        """Enter async context - get connection"""
+        self.connection = self.db_manager.get_connection()
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Exit async context - close connection"""
+        if self._cursor:
+            self._cursor.close()
+        if self.connection:
+            self.connection.close()
+    
+    async def execute(self, query, params=None):
+        """Execute query with cursor"""
+        if not self.connection:
+            raise RuntimeError("Connection not established")
+        
+        if not self._cursor:
+            self._cursor = self.connection.cursor(dictionary=True)
+        
+        self._cursor.execute(query, params or ())
+        return self._cursor
+    
+    async def fetchone(self):
+        """Fetch one row"""
+        if self._cursor:
+            return self._cursor.fetchone()
+        return None
+    
+    async def fetchall(self):
+        """Fetch all rows"""
+        if self._cursor:
+            return self._cursor.fetchall()
+        return []
+    
+    async def commit(self):
+        """Commit transaction"""
+        if self.connection:
+            self.connection.commit()
+    
+    async def rollback(self):
+        """Rollback transaction"""
+        if self.connection:
+            self.connection.rollback()
+
 class MCPServer:
     """MCP Server implementation for MegaMind Context Database"""
     
@@ -771,6 +843,34 @@ class MCPServer:
         self.db_manager = db_manager
         self.request_id = 0
         self.default_realm = os.getenv('MEGAMIND_PROJECT_REALM', 'PROJECT')
+        
+        # Initialize Phase 2 components
+        self.session_manager = None
+        self.enhanced_functions = None
+        self._init_phase2_components()
+    
+    def _init_phase2_components(self):
+        """Initialize Phase 2 components for enhanced embedding functions"""
+        try:
+            # Create database adapter for async compatibility
+            db_adapter = DatabaseConnectionAdapter(self.db_manager)
+            
+            # Initialize session manager with adapter
+            self.session_manager = SessionManager(db_adapter)
+            logger.info("Session manager initialized")
+            
+            # Initialize enhanced embedding functions
+            self.enhanced_functions = EnhancedEmbeddingFunctions(
+                self.db_manager, 
+                self.session_manager
+            )
+            logger.info("Enhanced embedding functions initialized")
+            
+        except Exception as e:
+            logger.warning(f"Phase 2 components initialization failed: {e}")
+            logger.warning("Enhanced embedding functions will not be available")
+            self.session_manager = None
+            self.enhanced_functions = None
     
     def get_tools_list(self) -> List[Dict[str, Any]]:
         """Get the complete list of MCP tools for both initialize and tools/list responses"""
@@ -1031,6 +1131,102 @@ class MCPServer:
                         "realm_id": {"type": "string", "description": "Filter by realm (optional)"}
                     },
                     "required": []
+                }
+            },
+            # Phase 2: Enhanced Embedding Functions
+            {
+                "name": "mcp__megamind__content_analyze_document",
+                "description": "Analyze document structure and content with Phase 1 components",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "Document content to analyze"},
+                        "document_name": {"type": "string", "description": "Optional document name"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"},
+                        "metadata": {"type": "object", "description": "Optional metadata"}
+                    },
+                    "required": ["content"]
+                }
+            },
+            {
+                "name": "mcp__megamind__content_create_chunks",
+                "description": "Create optimized chunks from content using intelligent chunking",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "content": {"type": "string", "description": "Content to chunk"},
+                        "document_name": {"type": "string", "description": "Optional document name"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"},
+                        "strategy": {"type": "string", "enum": ["semantic_aware", "markdown_structure", "hybrid"], "description": "Chunking strategy"},
+                        "max_tokens": {"type": "integer", "description": "Maximum tokens per chunk"},
+                        "min_tokens": {"type": "integer", "description": "Minimum tokens per chunk"},
+                        "target_realm": {"type": "string", "description": "Target realm for chunks"}
+                    },
+                    "required": ["content"]
+                }
+            },
+            {
+                "name": "mcp__megamind__content_assess_quality",
+                "description": "Assess quality of chunks using 8-dimensional scoring",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs to assess"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"},
+                        "include_context": {"type": "boolean", "description": "Include surrounding chunks for context"}
+                    },
+                    "required": ["chunk_ids"]
+                }
+            },
+            {
+                "name": "mcp__megamind__content_optimize_embeddings",
+                "description": "Optimize chunks for embedding generation",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs to optimize"},
+                        "session_id": {"type": "string", "description": "Optional session ID for tracking"},
+                        "model": {"type": "string", "description": "Embedding model name"},
+                        "cleaning_level": {"type": "string", "enum": ["minimal", "standard", "aggressive"], "description": "Text cleaning level"},
+                        "batch_size": {"type": "integer", "description": "Batch size for processing"}
+                    },
+                    "required": ["chunk_ids"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_create",
+                "description": "Create a new embedding session for tracking operations",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_type": {"type": "string", "enum": ["analysis", "ingestion", "curation", "mixed"], "description": "Type of session"},
+                        "created_by": {"type": "string", "description": "User creating the session"},
+                        "description": {"type": "string", "description": "Optional session description"},
+                        "metadata": {"type": "object", "description": "Optional session metadata"}
+                    },
+                    "required": ["session_type", "created_by"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_get_state",
+                "description": "Get current session state and progress",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session ID"}
+                    },
+                    "required": ["session_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__session_complete",
+                "description": "Complete and finalize a session",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session_id": {"type": "string", "description": "Session ID"}
+                    },
+                    "required": ["session_id"]
                 }
             }
         ]
@@ -1465,6 +1661,214 @@ class MCPServer:
                                 {
                                     "type": "text",
                                     "text": json.dumps(clean_decimal_objects(summary), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                # Phase 2: Enhanced Embedding Functions
+                elif tool_name == 'mcp__megamind__content_analyze_document':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.content_analyze_document(
+                        content=tool_args.get('content', ''),
+                        document_name=tool_args.get('document_name'),
+                        session_id=tool_args.get('session_id'),
+                        metadata=tool_args.get('metadata')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__content_create_chunks':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.content_create_chunks(
+                        content=tool_args.get('content', ''),
+                        document_name=tool_args.get('document_name'),
+                        session_id=tool_args.get('session_id'),
+                        strategy=tool_args.get('strategy'),
+                        max_tokens=tool_args.get('max_tokens'),
+                        min_tokens=tool_args.get('min_tokens'),
+                        target_realm=tool_args.get('target_realm')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__content_assess_quality':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.content_assess_quality(
+                        chunk_ids=tool_args.get('chunk_ids', []),
+                        session_id=tool_args.get('session_id'),
+                        include_context=tool_args.get('include_context', False)
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__content_optimize_embeddings':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.content_optimize_embeddings(
+                        chunk_ids=tool_args.get('chunk_ids', []),
+                        session_id=tool_args.get('session_id'),
+                        model=tool_args.get('model'),
+                        cleaning_level=tool_args.get('cleaning_level'),
+                        batch_size=tool_args.get('batch_size')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_create':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.session_create(
+                        session_type=tool_args.get('session_type', 'mixed'),
+                        created_by=tool_args.get('created_by', 'mcp_user'),
+                        description=tool_args.get('description'),
+                        metadata=tool_args.get('metadata')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_get_state':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.session_get_state(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                }
+                            ]
+                        }
+                    }
+                
+                elif tool_name == 'mcp__megamind__session_complete':
+                    if not self.enhanced_functions:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32601,
+                                "message": "Enhanced embedding functions not available"
+                            }
+                        }
+                    
+                    result = await self.enhanced_functions.session_complete(
+                        session_id=tool_args.get('session_id', '')
+                    )
+                    return {
+                        "jsonrpc": "2.0",
+                        "id": request_id,
+                        "result": {
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
                                 }
                             ]
                         }

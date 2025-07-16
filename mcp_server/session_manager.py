@@ -1,867 +1,634 @@
 #!/usr/bin/env python3
 """
-Enhanced Session Manager for MegaMind Context Database
-Implements core session logic with state management, lifecycle operations, and entry tracking
+Session Management Layer for Enhanced Multi-Embedding Entry System
+Handles session lifecycle, state tracking, and session-aware operations
 """
 
 import json
 import logging
-import uuid
 import hashlib
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Tuple, Union
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, field, asdict
 from enum import Enum
-from dataclasses import dataclass, asdict
+import asyncio
+from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
-class SessionState(Enum):
-    """Session state enumeration"""
-    OPEN = "open"
-    ACTIVE = "active"  
-    ARCHIVED = "archived"
+class SessionType(Enum):
+    """Types of embedding sessions"""
+    ANALYSIS = "analysis"
+    INGESTION = "ingestion"
+    CURATION = "curation"
+    MIXED = "mixed"
 
-class SessionPriority(Enum):
-    """Session priority levels"""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    CRITICAL = "critical"
+class SessionStatus(Enum):
+    """Session lifecycle states"""
+    ACTIVE = "active"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
-class EntryType(Enum):
-    """Session entry types"""
-    QUERY = "query"
-    OPERATION = "operation"
-    RESULT = "result"
-    CONTEXT_SWITCH = "context_switch"
-    ERROR = "error"
-    SYSTEM_EVENT = "system_event"
-
-@dataclass
-class SessionMetadata:
-    """Session metadata structure"""
-    session_id: str
-    session_name: Optional[str] = None
-    user_id: Optional[str] = None
-    realm_id: str = "PROJECT"
-    project_context: Optional[str] = None
-    session_state: SessionState = SessionState.OPEN
-    priority: SessionPriority = SessionPriority.MEDIUM
-    enable_semantic_indexing: bool = True
-    content_token_limit: int = 128
-    session_config: Optional[Dict[str, Any]] = None
-    session_tags: Optional[List[str]] = None
-    total_entries: int = 0
-    total_chunks_accessed: int = 0
-    total_operations: int = 0
-    performance_score: float = 0.0
-    context_quality_score: float = 0.0
-    created_at: Optional[datetime] = None
-    last_activity: Optional[datetime] = None
-    archived_at: Optional[datetime] = None
+class OperationType(Enum):
+    """Types of chunk operations"""
+    CREATED = "created"
+    UPDATED = "updated"
+    ANALYZED = "analyzed"
+    EMBEDDED = "embedded"
+    QUALITY_ASSESSED = "quality_assessed"
 
 @dataclass
-class SessionEntry:
-    """Session entry structure"""
-    entry_id: str
+class SessionConfig:
+    """Configuration for embedding sessions"""
+    timeout_minutes: int = 120
+    auto_save_interval_seconds: int = 300
+    chunk_batch_size: int = 100
+    embedding_batch_size: int = 32
+    quality_threshold: float = 0.7
+    max_concurrent_operations: int = 5
+
+@dataclass
+class SessionState:
+    """Current state of a session"""
     session_id: str
-    entry_type: EntryType
-    entry_content: str
-    operation_type: Optional[str] = None
-    content_tokens: int = 0
-    content_truncated: bool = False
-    original_content_hash: Optional[str] = None
-    semantic_summary: Optional[str] = None
-    related_chunk_ids: Optional[List[str]] = None
-    context_relevance_score: float = 0.0
-    parent_entry_id: Optional[str] = None
-    entry_sequence: int = 1
-    conversation_turn: int = 1
+    current_document: Optional[str] = None
+    current_chunk_index: int = 0
+    processed_chunks: List[str] = field(default_factory=list)
+    failed_chunks: List[str] = field(default_factory=list)
+    metrics: Dict[str, Any] = field(default_factory=dict)
+    checkpoints: Dict[str, Any] = field(default_factory=dict)
+    last_saved: datetime = field(default_factory=datetime.now)
+
+@dataclass
+class SessionMetrics:
+    """Metrics tracked for a session"""
+    total_chunks_processed: int = 0
+    total_embeddings_generated: int = 0
+    average_quality_score: float = 0.0
     processing_time_ms: int = 0
-    success_indicator: bool = True
-    quality_score: float = 0.0
-    entry_metadata: Optional[Dict[str, Any]] = None
-    user_feedback: Optional[Dict[str, Any]] = None
-    created_at: Optional[datetime] = None
-
-class SessionValidationError(Exception):
-    """Session validation error"""
-    pass
-
-class SessionStateError(Exception):
-    """Session state management error"""
-    pass
+    error_count: int = 0
+    retry_count: int = 0
 
 class SessionManager:
     """
-    Core session management logic with state tracking, lifecycle operations, and entry management
+    Manages embedding session lifecycle and operations
     """
     
-    def __init__(self, database_connection):
+    def __init__(self, database_connection, config: Optional[SessionConfig] = None):
         self.db = database_connection
-        self._active_session_cache = {}  # Cache for performance
-        self._session_locks = {}  # Simple session locking mechanism
+        self.config = config or SessionConfig()
+        self._active_sessions: Dict[str, SessionState] = {}
+        self._session_locks: Dict[str, asyncio.Lock] = {}
+        self._auto_save_tasks: Dict[str, asyncio.Task] = {}
         
-        # Configuration
-        self.max_active_sessions_per_user = 1
-        self.session_timeout_hours = 24
-        self.max_entries_per_session = 10000
-        self.auto_archive_after_days = 30
-        
-        logger.info("SessionManager initialized with enhanced session logic")
+        logger.info("SessionManager initialized with config: %s", self.config)
     
-    # ================================================================
-    # CORE SESSION LIFECYCLE METHODS
-    # ================================================================
-    
-    def create_session(self, 
-                      user_id: str,
-                      realm_id: str = "PROJECT",
-                      session_name: Optional[str] = None,
-                      project_context: Optional[str] = None,
-                      priority: SessionPriority = SessionPriority.MEDIUM,
-                      config: Optional[Dict[str, Any]] = None) -> SessionMetadata:
-        """Create a new session with validation and state management"""
+    async def create_session(self, 
+                           session_type: SessionType,
+                           realm_id: str,
+                           created_by: str,
+                           metadata: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Create a new embedding session
         
-        try:
-            # Generate session ID
-            session_id = f"session_{uuid.uuid4().hex[:12]}"
+        Args:
+            session_type: Type of session (analysis, ingestion, etc.)
+            realm_id: Target realm for the session
+            created_by: User/system creating the session
+            metadata: Optional session metadata
             
-            # Validate session creation
-            self._validate_session_creation(user_id, realm_id)
-            
-            # Check if user has active sessions (enforce one active session rule)
-            active_sessions = self._get_active_sessions_for_user(user_id, realm_id)
-            if active_sessions:
-                logger.warning(f"User {user_id} has active sessions. Archiving them before creating new session.")
-                for active_session in active_sessions:
-                    self._archive_session_internal(active_session['session_id'], "New session created")
-            
-            # Create session metadata
-            session_metadata = SessionMetadata(
-                session_id=session_id,
-                session_name=session_name or f"Session {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                user_id=user_id,
-                realm_id=realm_id,
-                project_context=project_context,
-                session_state=SessionState.OPEN,
-                priority=priority,
-                session_config=config or {},
-                created_at=datetime.now(),
-                last_activity=datetime.now()
+        Returns:
+            Session ID
+        """
+        session_id = self._generate_session_id()
+        
+        # Create session in database
+        async with self.db.connection() as conn:
+            await conn.execute(
+                """
+                INSERT INTO megamind_embedding_sessions 
+                (session_id, session_type, realm_id, created_by, metadata)
+                VALUES (%s, %s, %s, %s, %s)
+                """,
+                (session_id, session_type.value, realm_id, created_by, 
+                 json.dumps(metadata or {}))
             )
+            await conn.commit()
+        
+        # Initialize session state
+        session_state = SessionState(session_id=session_id)
+        self._active_sessions[session_id] = session_state
+        self._session_locks[session_id] = asyncio.Lock()
+        
+        # Start auto-save task
+        self._auto_save_tasks[session_id] = asyncio.create_task(
+            self._auto_save_session(session_id)
+        )
+        
+        logger.info(f"Created session {session_id} of type {session_type.value}")
+        return session_id
+    
+    async def get_session_state(self, session_id: str) -> Optional[SessionState]:
+        """Get current session state"""
+        if session_id in self._active_sessions:
+            return self._active_sessions[session_id]
+        
+        # Try to load from database
+        state_data = await self._load_session_state(session_id)
+        if state_data:
+            session_state = SessionState(
+                session_id=session_id,
+                current_document=state_data.get('current_document'),
+                current_chunk_index=state_data.get('current_chunk_index', 0),
+                processed_chunks=state_data.get('processed_chunks', []),
+                failed_chunks=state_data.get('failed_chunks', []),
+                metrics=state_data.get('metrics', {}),
+                checkpoints=state_data.get('checkpoints', {})
+            )
+            self._active_sessions[session_id] = session_state
+            self._session_locks[session_id] = asyncio.Lock()
+            return session_state
+        
+        return None
+    
+    async def update_session_state(self, 
+                                 session_id: str,
+                                 updates: Dict[str, Any]) -> bool:
+        """Update session state"""
+        async with self._get_session_lock(session_id):
+            state = await self.get_session_state(session_id)
+            if not state:
+                return False
             
-            # Insert into database
-            self._insert_session_to_database(session_metadata)
+            # Apply updates
+            for key, value in updates.items():
+                if hasattr(state, key):
+                    setattr(state, key, value)
             
-            # Update cache
-            self._active_session_cache[session_id] = session_metadata
+            # Save to database
+            await self._save_session_state(session_id, state)
             
-            logger.info(f"Created new session: {session_id} for user {user_id} in realm {realm_id}")
-            return session_metadata
+            return True
+    
+    async def track_chunk_operation(self,
+                                  session_id: str,
+                                  chunk_id: str,
+                                  operation_type: OperationType,
+                                  metadata: Optional[Dict[str, Any]] = None,
+                                  quality_score: Optional[float] = None,
+                                  embedding_id: Optional[str] = None) -> bool:
+        """
+        Track a chunk operation within a session
+        
+        Args:
+            session_id: Session ID
+            chunk_id: Chunk ID
+            operation_type: Type of operation performed
+            metadata: Optional operation metadata
+            quality_score: Optional quality score
+            embedding_id: Optional embedding ID
+            
+        Returns:
+            Success status
+        """
+        try:
+            async with self.db.connection() as conn:
+                # Generate tracking ID
+                tracking_id = f"sc_{hashlib.md5(f'{session_id}{chunk_id}{datetime.now()}'.encode()).hexdigest()[:12]}"
+                
+                # Insert tracking record
+                await conn.execute(
+                    """
+                    INSERT INTO megamind_session_chunks
+                    (session_chunk_id, session_id, chunk_id, operation_type,
+                     operation_metadata, quality_score, embedding_id)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (tracking_id, session_id, chunk_id, operation_type.value,
+                     json.dumps(metadata or {}), quality_score, embedding_id)
+                )
+                
+                # Update session metrics
+                await conn.execute(
+                    """
+                    UPDATE megamind_embedding_sessions
+                    SET total_chunks_processed = total_chunks_processed + 1,
+                        total_embeddings_generated = total_embeddings_generated + %s
+                    WHERE session_id = %s
+                    """,
+                    (1 if embedding_id else 0, session_id)
+                )
+                
+                await conn.commit()
+            
+            # Update in-memory state
+            async with self._get_session_lock(session_id):
+                state = await self.get_session_state(session_id)
+                if state:
+                    state.processed_chunks.append(chunk_id)
+                    state.metrics['last_operation'] = operation_type.value
+                    state.metrics['last_operation_time'] = datetime.now().isoformat()
+            
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to create session: {e}")
-            raise SessionValidationError(f"Session creation failed: {str(e)}")
+            logger.error(f"Failed to track chunk operation: {e}")
+            return False
     
-    def activate_session(self, session_id: str, user_id: str) -> SessionMetadata:
-        """Activate an open session and make it the current working session"""
-        
+    async def add_document_to_session(self,
+                                    session_id: str,
+                                    document_id: str,
+                                    document_path: str,
+                                    document_hash: Optional[str] = None) -> bool:
+        """Add a document to session for processing"""
         try:
-            # Get session metadata
-            session = self._get_session_from_database(session_id)
-            if not session:
-                raise SessionValidationError(f"Session {session_id} not found")
+            tracking_id = f"sd_{hashlib.md5(f'{session_id}{document_id}'.encode()).hexdigest()[:12]}"
             
-            # Validate session ownership and state
-            if session.user_id != user_id:
-                raise SessionValidationError(f"Session {session_id} does not belong to user {user_id}")
+            async with self.db.connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO megamind_session_documents
+                    (session_document_id, session_id, document_id, 
+                     document_path, document_hash, processing_status)
+                    VALUES (%s, %s, %s, %s, %s, 'pending')
+                    """,
+                    (tracking_id, session_id, document_id, document_path, document_hash)
+                )
+                await conn.commit()
             
-            if session.session_state not in [SessionState.OPEN, SessionState.ACTIVE]:
-                raise SessionStateError(f"Cannot activate session in state: {session.session_state}")
+            return True
             
-            # Deactivate other active sessions for this user
-            active_sessions = self._get_active_sessions_for_user(user_id, session.realm_id)
-            for active_session in active_sessions:
-                if active_session['session_id'] != session_id:
-                    self._set_session_state(active_session['session_id'], SessionState.OPEN)
+        except Exception as e:
+            logger.error(f"Failed to add document to session: {e}")
+            return False
+    
+    async def update_document_status(self,
+                                   session_id: str,
+                                   document_id: str,
+                                   status: str,
+                                   chunks_created: Optional[int] = None,
+                                   embeddings_created: Optional[int] = None,
+                                   error_details: Optional[str] = None) -> bool:
+        """Update document processing status"""
+        try:
+            async with self.db.connection() as conn:
+                query_parts = [
+                    "UPDATE megamind_session_documents",
+                    "SET processing_status = %s"
+                ]
+                params = [status]
+                
+                if chunks_created is not None:
+                    query_parts.append(", chunks_created = %s")
+                    params.append(chunks_created)
+                
+                if embeddings_created is not None:
+                    query_parts.append(", embeddings_created = %s")
+                    params.append(embeddings_created)
+                
+                if error_details:
+                    query_parts.append(", error_details = %s")
+                    params.append(error_details)
+                
+                if status == 'processing':
+                    query_parts.append(", started_at = NOW()")
+                elif status in ['completed', 'failed']:
+                    query_parts.append(", completed_at = NOW()")
+                
+                query_parts.append("WHERE session_id = %s AND document_id = %s")
+                params.extend([session_id, document_id])
+                
+                await conn.execute(" ".join(query_parts), params)
+                await conn.commit()
             
-            # Activate this session
-            session.session_state = SessionState.ACTIVE
-            session.last_activity = datetime.now()
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update document status: {e}")
+            return False
+    
+    async def record_metric(self,
+                          session_id: str,
+                          metric_type: str,
+                          metric_value: float,
+                          metric_unit: Optional[str] = None,
+                          metadata: Optional[Dict[str, Any]] = None) -> bool:
+        """Record a session metric"""
+        try:
+            metric_id = f"metric_{hashlib.md5(f'{session_id}{metric_type}{datetime.now()}'.encode()).hexdigest()[:12]}"
+            
+            async with self.db.connection() as conn:
+                await conn.execute(
+                    """
+                    INSERT INTO megamind_session_metrics
+                    (metric_id, session_id, metric_type, metric_value, 
+                     metric_unit, metadata)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (metric_id, session_id, metric_type, metric_value,
+                     metric_unit, json.dumps(metadata or {}))
+                )
+                await conn.commit()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to record metric: {e}")
+            return False
+    
+    async def get_session_progress(self, session_id: str) -> Dict[str, Any]:
+        """Get detailed session progress"""
+        async with self.db.connection() as conn:
+            # Get session info
+            cursor = await conn.execute(
+                """
+                SELECT s.*, 
+                       COUNT(DISTINCT sd.document_id) as total_documents,
+                       COUNT(DISTINCT sc.chunk_id) as total_chunks,
+                       AVG(sc.quality_score) as avg_quality_score
+                FROM megamind_embedding_sessions s
+                LEFT JOIN megamind_session_documents sd ON s.session_id = sd.session_id
+                LEFT JOIN megamind_session_chunks sc ON s.session_id = sc.session_id
+                WHERE s.session_id = %s
+                GROUP BY s.session_id
+                """,
+                (session_id,)
+            )
+            session_info = await cursor.fetchone()
+            
+            if not session_info:
+                return {}
+            
+            # Get document progress
+            cursor = await conn.execute(
+                """
+                SELECT processing_status, COUNT(*) as count,
+                       SUM(chunks_created) as chunks,
+                       SUM(embeddings_created) as embeddings
+                FROM megamind_session_documents
+                WHERE session_id = %s
+                GROUP BY processing_status
+                """,
+                (session_id,)
+            )
+            doc_progress = {row['processing_status']: {
+                'count': row['count'],
+                'chunks': row['chunks'] or 0,
+                'embeddings': row['embeddings'] or 0
+            } for row in await cursor.fetchall()}
+            
+            # Get recent metrics
+            cursor = await conn.execute(
+                """
+                SELECT metric_type, metric_value, metric_unit, recorded_at
+                FROM megamind_session_metrics
+                WHERE session_id = %s
+                ORDER BY recorded_at DESC
+                LIMIT 10
+                """,
+                (session_id,)
+            )
+            recent_metrics = await cursor.fetchall()
+            
+            return {
+                'session_id': session_id,
+                'status': session_info['status'],
+                'created_date': session_info['created_date'],
+                'last_activity': session_info['last_activity'],
+                'total_documents': session_info['total_documents'],
+                'total_chunks': session_info['total_chunks'],
+                'avg_quality_score': float(session_info['avg_quality_score'] or 0),
+                'document_progress': doc_progress,
+                'recent_metrics': [dict(m) for m in recent_metrics]
+            }
+    
+    async def complete_session(self, session_id: str) -> bool:
+        """Mark session as completed"""
+        try:
+            # Stop auto-save task
+            if session_id in self._auto_save_tasks:
+                self._auto_save_tasks[session_id].cancel()
+                del self._auto_save_tasks[session_id]
+            
+            # Final save of state
+            if session_id in self._active_sessions:
+                await self._save_session_state(session_id, self._active_sessions[session_id])
             
             # Update database
-            self._update_session_in_database(session)
+            async with self.db.connection() as conn:
+                await conn.execute(
+                    """
+                    UPDATE megamind_embedding_sessions
+                    SET status = 'completed',
+                        processing_duration_ms = TIMESTAMPDIFF(MICROSECOND, created_date, NOW()) / 1000
+                    WHERE session_id = %s
+                    """,
+                    (session_id,)
+                )
+                await conn.commit()
             
-            # Update cache
-            self._active_session_cache[session_id] = session
+            # Clean up in-memory state
+            if session_id in self._active_sessions:
+                del self._active_sessions[session_id]
+            if session_id in self._session_locks:
+                del self._session_locks[session_id]
             
-            logger.info(f"Activated session: {session_id} for user {user_id}")
-            return session
+            logger.info(f"Completed session {session_id}")
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to activate session {session_id}: {e}")
-            raise SessionStateError(f"Session activation failed: {str(e)}")
+            logger.error(f"Failed to complete session: {e}")
+            return False
     
-    def archive_session(self, session_id: str, user_id: str, archive_reason: str = "User requested") -> bool:
-        """Archive a session and preserve its context"""
-        
+    async def pause_session(self, session_id: str) -> bool:
+        """Pause an active session"""
         try:
-            # Get session metadata
-            session = self._get_session_from_database(session_id)
-            if not session:
-                raise SessionValidationError(f"Session {session_id} not found")
+            # Save current state
+            if session_id in self._active_sessions:
+                await self._save_session_state(session_id, self._active_sessions[session_id])
             
-            # Validate session ownership
-            if session.user_id != user_id:
-                raise SessionValidationError(f"Session {session_id} does not belong to user {user_id}")
+            # Update status
+            async with self.db.connection() as conn:
+                await conn.execute(
+                    "UPDATE megamind_embedding_sessions SET status = 'paused' WHERE session_id = %s",
+                    (session_id,)
+                )
+                await conn.commit()
             
-            if session.session_state == SessionState.ARCHIVED:
-                logger.info(f"Session {session_id} is already archived")
+            # Stop auto-save but keep state in memory
+            if session_id in self._auto_save_tasks:
+                self._auto_save_tasks[session_id].cancel()
+                del self._auto_save_tasks[session_id]
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to pause session: {e}")
+            return False
+    
+    async def resume_session(self, session_id: str) -> bool:
+        """Resume a paused session"""
+        try:
+            # Update status
+            async with self.db.connection() as conn:
+                await conn.execute(
+                    "UPDATE megamind_embedding_sessions SET status = 'active' WHERE session_id = %s",
+                    (session_id,)
+                )
+                await conn.commit()
+            
+            # Ensure state is loaded
+            state = await self.get_session_state(session_id)
+            if state:
+                # Restart auto-save
+                self._auto_save_tasks[session_id] = asyncio.create_task(
+                    self._auto_save_session(session_id)
+                )
                 return True
             
-            # Archive the session
-            return self._archive_session_internal(session_id, archive_reason)
+            return False
             
         except Exception as e:
-            logger.error(f"Failed to archive session {session_id}: {e}")
-            raise SessionStateError(f"Session archival failed: {str(e)}")
+            logger.error(f"Failed to resume session: {e}")
+            return False
     
-    def resume_session(self, session_id: str, user_id: str) -> SessionMetadata:
-        """Resume an archived session (move back to open state)"""
+    @asynccontextmanager
+    async def session_operation(self, session_id: str, operation_name: str):
+        """Context manager for session operations with automatic tracking"""
+        start_time = datetime.now()
         
         try:
-            # Get session metadata
-            session = self._get_session_from_database(session_id)
-            if not session:
-                raise SessionValidationError(f"Session {session_id} not found")
-            
-            # Validate session ownership
-            if session.user_id != user_id:
-                raise SessionValidationError(f"Session {session_id} does not belong to user {user_id}")
-            
-            if session.session_state != SessionState.ARCHIVED:
-                raise SessionStateError(f"Can only resume archived sessions. Current state: {session.session_state}")
-            
-            # Resume session
-            session.session_state = SessionState.OPEN
-            session.last_activity = datetime.now()
-            session.archived_at = None
-            
-            # Update database
-            self._update_session_in_database(session)
-            
-            # Add resume entry
-            self.add_session_entry(
-                session_id=session_id,
-                entry_type=EntryType.SYSTEM_EVENT,
-                content=f"Session resumed by {user_id}",
-                operation_type="resume_session"
+            # Record operation start
+            await self.record_metric(
+                session_id, f"{operation_name}_started", 1.0,
+                metadata={'timestamp': start_time.isoformat()}
             )
             
-            logger.info(f"Resumed session: {session_id} for user {user_id}")
-            return session
+            yield
             
-        except Exception as e:
-            logger.error(f"Failed to resume session {session_id}: {e}")
-            raise SessionStateError(f"Session resume failed: {str(e)}")
-    
-    # ================================================================
-    # SESSION ENTRY MANAGEMENT
-    # ================================================================
-    
-    def add_session_entry(self,
-                         session_id: str,
-                         entry_type: EntryType,
-                         content: str,
-                         operation_type: Optional[str] = None,
-                         related_chunk_ids: Optional[List[str]] = None,
-                         parent_entry_id: Optional[str] = None,
-                         metadata: Optional[Dict[str, Any]] = None) -> SessionEntry:
-        """Add a new entry to a session with automatic state management"""
-        
-        try:
-            # Get session and validate
-            session = self._get_session_from_database(session_id)
-            if not session:
-                raise SessionValidationError(f"Session {session_id} not found")
-            
-            if session.session_state == SessionState.ARCHIVED:
-                raise SessionStateError("Cannot add entries to archived session")
-            
-            # Generate entry ID and calculate sequence
-            entry_id = f"entry_{uuid.uuid4().hex[:12]}"
-            entry_sequence = self._get_next_entry_sequence(session_id)
-            conversation_turn = self._get_current_conversation_turn(session_id)
-            
-            # Calculate content tokens and hash
-            content_tokens = len(content.split())
-            content_hash = hashlib.md5(content.encode('utf-8')).hexdigest()
-            
-            # Apply token limits if needed
-            truncated_content = content
-            content_truncated = False
-            if content_tokens > session.content_token_limit:
-                # Simple truncation strategy - take first N tokens
-                words = content.split()
-                truncated_content = ' '.join(words[:session.content_token_limit])
-                content_truncated = True
-                content_tokens = session.content_token_limit
-            
-            # Create session entry
-            entry = SessionEntry(
-                entry_id=entry_id,
-                session_id=session_id,
-                entry_type=entry_type,
-                entry_content=truncated_content,
-                operation_type=operation_type,
-                content_tokens=content_tokens,
-                content_truncated=content_truncated,
-                original_content_hash=content_hash,
-                related_chunk_ids=related_chunk_ids,
-                parent_entry_id=parent_entry_id,
-                entry_sequence=entry_sequence,
-                conversation_turn=conversation_turn,
-                entry_metadata=metadata,
-                created_at=datetime.now()
+            # Record operation success
+            duration_ms = (datetime.now() - start_time).total_seconds() * 1000
+            await self.record_metric(
+                session_id, f"{operation_name}_duration_ms", duration_ms, "ms"
             )
             
-            # Insert into database
-            self._insert_entry_to_database(entry)
+        except Exception as e:
+            # Record operation failure
+            await self.record_metric(
+                session_id, f"{operation_name}_failed", 1.0,
+                metadata={'error': str(e), 'timestamp': datetime.now().isoformat()}
+            )
+            raise
+    
+    async def cleanup_expired_sessions(self) -> int:
+        """Clean up expired sessions"""
+        try:
+            cutoff_time = datetime.now() - timedelta(minutes=self.config.timeout_minutes)
             
-            # Update session statistics
-            self._update_session_stats(session_id, entry_added=True)
+            async with self.db.connection() as conn:
+                # Find expired sessions
+                cursor = await conn.execute(
+                    """
+                    SELECT session_id FROM megamind_embedding_sessions
+                    WHERE status = 'active' AND last_activity < %s
+                    """,
+                    (cutoff_time,)
+                )
+                expired_sessions = [row['session_id'] for row in await cursor.fetchall()]
+                
+                # Cancel them
+                for session_id in expired_sessions:
+                    await self.complete_session(session_id)
+                
+                return len(expired_sessions)
+                
+        except Exception as e:
+            logger.error(f"Failed to cleanup expired sessions: {e}")
+            return 0
+    
+    # Private helper methods
+    
+    def _generate_session_id(self) -> str:
+        """Generate unique session ID"""
+        return f"session_{hashlib.md5(f'{datetime.now()}'.encode()).hexdigest()[:12]}"
+    
+    async def _get_session_lock(self, session_id: str) -> asyncio.Lock:
+        """Get lock for session operations"""
+        if session_id not in self._session_locks:
+            self._session_locks[session_id] = asyncio.Lock()
+        return self._session_locks[session_id]
+    
+    async def _save_session_state(self, session_id: str, state: SessionState) -> bool:
+        """Save session state to database"""
+        try:
+            state_data = {
+                'current_document': state.current_document,
+                'current_chunk_index': state.current_chunk_index,
+                'processed_chunks': state.processed_chunks,
+                'failed_chunks': state.failed_chunks,
+                'metrics': state.metrics,
+                'checkpoints': state.checkpoints
+            }
             
-            # Auto-activate session if it's open and we're adding operational entries
-            if session.session_state == SessionState.OPEN and entry_type in [EntryType.QUERY, EntryType.OPERATION]:
-                session.session_state = SessionState.ACTIVE
-                self._update_session_in_database(session)
+            async with self.db.connection() as conn:
+                # Save main state
+                await conn.execute(
+                    """
+                    INSERT INTO megamind_session_state 
+                    (state_id, session_id, state_key, state_value)
+                    VALUES (%s, %s, 'main_state', %s)
+                    ON DUPLICATE KEY UPDATE 
+                        state_value = VALUES(state_value),
+                        updated_timestamp = CURRENT_TIMESTAMP
+                    """,
+                    (f"state_{session_id}_main", session_id, json.dumps(state_data))
+                )
+                await conn.commit()
             
-            logger.debug(f"Added entry {entry_id} to session {session_id}")
-            return entry
+            state.last_saved = datetime.now()
+            return True
             
         except Exception as e:
-            logger.error(f"Failed to add entry to session {session_id}: {e}")
-            raise SessionValidationError(f"Entry addition failed: {str(e)}")
+            logger.error(f"Failed to save session state: {e}")
+            return False
     
-    # ================================================================
-    # SESSION QUERY AND RETRIEVAL
-    # ================================================================
-    
-    def get_session(self, session_id: str, user_id: Optional[str] = None) -> Optional[SessionMetadata]:
-        """Get session metadata with optional user validation"""
-        
+    async def _load_session_state(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Load session state from database"""
         try:
-            session = self._get_session_from_database(session_id)
-            if not session:
+            async with self.db.connection() as conn:
+                cursor = await conn.execute(
+                    """
+                    SELECT state_value FROM megamind_session_state
+                    WHERE session_id = %s AND state_key = 'main_state'
+                    ORDER BY updated_timestamp DESC
+                    LIMIT 1
+                    """,
+                    (session_id,)
+                )
+                row = await cursor.fetchone()
+                
+                if row:
+                    return json.loads(row['state_value'])
+                
                 return None
-            
-            # Validate user ownership if specified
-            if user_id and session.user_id != user_id:
-                logger.warning(f"User {user_id} attempted to access session {session_id} owned by {session.user_id}")
-                return None
-            
-            return session
-            
+                
         except Exception as e:
-            logger.error(f"Failed to get session {session_id}: {e}")
+            logger.error(f"Failed to load session state: {e}")
             return None
     
-    def get_active_session(self, user_id: str, realm_id: str) -> Optional[SessionMetadata]:
-        """Get the currently active session for a user in a realm"""
-        
-        try:
-            active_sessions = self._get_active_sessions_for_user(user_id, realm_id)
-            if active_sessions:
-                session_id = active_sessions[0]['session_id']
-                return self._get_session_from_database(session_id)
-            return None
-            
-        except Exception as e:
-            logger.error(f"Failed to get active session for user {user_id}: {e}")
-            return None
-    
-    def get_session_entries(self, session_id: str, limit: int = 100, offset: int = 0) -> List[SessionEntry]:
-        """Get session entries with pagination"""
-        
-        try:
-            return self._get_entries_from_database(session_id, limit, offset)
-            
-        except Exception as e:
-            logger.error(f"Failed to get entries for session {session_id}: {e}")
-            return []
-    
-    def list_user_sessions(self, user_id: str, realm_id: str, 
-                          state_filter: Optional[SessionState] = None,
-                          limit: int = 50) -> List[SessionMetadata]:
-        """List sessions for a user with optional state filtering"""
-        
-        try:
-            return self._list_sessions_from_database(user_id, realm_id, state_filter, limit)
-            
-        except Exception as e:
-            logger.error(f"Failed to list sessions for user {user_id}: {e}")
-            return []
-    
-    # ================================================================
-    # INTERNAL HELPER METHODS
-    # ================================================================
-    
-    def _validate_session_creation(self, user_id: str, realm_id: str):
-        """Validate session creation parameters"""
-        if not user_id or not user_id.strip():
-            raise SessionValidationError("User ID is required")
-        
-        if not realm_id or not realm_id.strip():
-            raise SessionValidationError("Realm ID is required")
-        
-        # Additional validation logic can be added here
-    
-    def _get_active_sessions_for_user(self, user_id: str, realm_id: str) -> List[Dict[str, Any]]:
-        """Get active sessions for a user in a realm"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor(dictionary=True)
-            
-            query = """
-            SELECT session_id, session_state FROM megamind_sessions 
-            WHERE user_id = %s AND realm_id = %s AND session_state = 'active'
-            ORDER BY last_activity DESC
-            """
-            
-            cursor.execute(query, (user_id, realm_id))
-            result = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Failed to get active sessions: {e}")
-            return []
-    
-    def _archive_session_internal(self, session_id: str, reason: str) -> bool:
-        """Internal method to archive a session"""
-        try:
-            # Add archive entry BEFORE archiving (while session is still active)
+    async def _auto_save_session(self, session_id: str):
+        """Auto-save session state periodically"""
+        while session_id in self._active_sessions:
             try:
-                self.add_session_entry(
-                    session_id=session_id,
-                    entry_type=EntryType.SYSTEM_EVENT,
-                    content=f"Session archived: {reason}",
-                    operation_type="archive_session"
-                )
-            except Exception as entry_error:
-                logger.warning(f"Could not add archive entry: {entry_error}")
-            
-            # Now archive the session
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            archive_query = """
-            UPDATE megamind_sessions 
-            SET session_state = 'archived', archived_at = CURRENT_TIMESTAMP, last_activity = CURRENT_TIMESTAMP
-            WHERE session_id = %s
-            """
-            
-            cursor.execute(archive_query, (session_id,))
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-            # Remove from cache
-            self._active_session_cache.pop(session_id, None)
-            
-            logger.info(f"Archived session {session_id}: {reason}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to archive session {session_id}: {e}")
-            return False
-    
-    def _set_session_state(self, session_id: str, new_state: SessionState) -> bool:
-        """Update session state in database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            update_query = """
-            UPDATE megamind_sessions 
-            SET session_state = %s, last_activity = CURRENT_TIMESTAMP
-            WHERE session_id = %s
-            """
-            
-            cursor.execute(update_query, (new_state.value, session_id))
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to update session state: {e}")
-            return False
-    
-    def _get_next_entry_sequence(self, session_id: str) -> int:
-        """Get the next entry sequence number for a session"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            query = "SELECT MAX(entry_sequence) FROM megamind_session_entries WHERE session_id = %s"
-            cursor.execute(query, (session_id,))
-            result = cursor.fetchone()
-            
-            cursor.close()
-            connection.close()
-            
-            return (result[0] or 0) + 1
-            
-        except Exception as e:
-            logger.error(f"Failed to get next entry sequence: {e}")
-            return 1
-    
-    def _get_current_conversation_turn(self, session_id: str) -> int:
-        """Get current conversation turn for a session"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            query = "SELECT MAX(conversation_turn) FROM megamind_session_entries WHERE session_id = %s"
-            cursor.execute(query, (session_id,))
-            result = cursor.fetchone()
-            
-            cursor.close()
-            connection.close()
-            
-            return result[0] or 1
-            
-        except Exception as e:
-            logger.error(f"Failed to get conversation turn: {e}")
-            return 1
-    
-    def _update_session_stats(self, session_id: str, entry_added: bool = False, chunks_accessed: int = 0):
-        """Update session statistics"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            if entry_added:
-                update_query = """
-                UPDATE megamind_sessions 
-                SET total_entries = total_entries + 1, 
-                    total_chunks_accessed = total_chunks_accessed + %s,
-                    total_operations = total_operations + 1,
-                    last_activity = CURRENT_TIMESTAMP
-                WHERE session_id = %s
-                """
-                cursor.execute(update_query, (chunks_accessed, session_id))
-            
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-        except Exception as e:
-            logger.error(f"Failed to update session stats: {e}")
-    
-    # ================================================================
-    # DATABASE INTERACTION METHODS
-    # ================================================================
-    
-    def _insert_session_to_database(self, session: SessionMetadata):
-        """Insert session to database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            insert_query = """
-            INSERT INTO megamind_sessions (
-                session_id, session_name, user_id, realm_id, project_context,
-                session_state, priority, enable_semantic_indexing, content_token_limit,
-                session_config, session_tags, total_entries, total_chunks_accessed,
-                total_operations, performance_score, context_quality_score,
-                created_at, last_activity
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            session_config_json = json.dumps(session.session_config) if session.session_config else None
-            session_tags_json = json.dumps(session.session_tags) if session.session_tags else None
-            
-            cursor.execute(insert_query, (
-                session.session_id, session.session_name, session.user_id, session.realm_id,
-                session.project_context, session.session_state.value, session.priority.value,
-                session.enable_semantic_indexing, session.content_token_limit,
-                session_config_json, session_tags_json, session.total_entries,
-                session.total_chunks_accessed, session.total_operations,
-                session.performance_score, session.context_quality_score,
-                session.created_at, session.last_activity
-            ))
-            
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-        except Exception as e:
-            logger.error(f"Failed to insert session to database: {e}")
-            raise
-    
-    def _update_session_in_database(self, session: SessionMetadata):
-        """Update session in database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            update_query = """
-            UPDATE megamind_sessions SET
-                session_name = %s, session_state = %s, priority = %s,
-                enable_semantic_indexing = %s, content_token_limit = %s,
-                session_config = %s, session_tags = %s, total_entries = %s,
-                total_chunks_accessed = %s, total_operations = %s,
-                performance_score = %s, context_quality_score = %s,
-                last_activity = %s, archived_at = %s
-            WHERE session_id = %s
-            """
-            
-            session_config_json = json.dumps(session.session_config) if session.session_config else None
-            session_tags_json = json.dumps(session.session_tags) if session.session_tags else None
-            
-            cursor.execute(update_query, (
-                session.session_name, session.session_state.value, session.priority.value,
-                session.enable_semantic_indexing, session.content_token_limit,
-                session_config_json, session_tags_json, session.total_entries,
-                session.total_chunks_accessed, session.total_operations,
-                session.performance_score, session.context_quality_score,
-                session.last_activity, session.archived_at, session.session_id
-            ))
-            
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-        except Exception as e:
-            logger.error(f"Failed to update session in database: {e}")
-            raise
-    
-    def _get_session_from_database(self, session_id: str) -> Optional[SessionMetadata]:
-        """Get session from database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor(dictionary=True)
-            
-            query = """
-            SELECT * FROM megamind_sessions WHERE session_id = %s
-            """
-            
-            cursor.execute(query, (session_id,))
-            result = cursor.fetchone()
-            cursor.close()
-            connection.close()
-            
-            if not result:
-                return None
-            
-            # Convert database result to SessionMetadata
-            session_config = json.loads(result['session_config']) if result['session_config'] else None
-            session_tags = json.loads(result['session_tags']) if result['session_tags'] else None
-            
-            return SessionMetadata(
-                session_id=result['session_id'],
-                session_name=result['session_name'],
-                user_id=result['user_id'],
-                realm_id=result['realm_id'],
-                project_context=result['project_context'],
-                session_state=SessionState(result['session_state']),
-                priority=SessionPriority(result['priority']),
-                enable_semantic_indexing=bool(result['enable_semantic_indexing']),
-                content_token_limit=result['content_token_limit'],
-                session_config=session_config,
-                session_tags=session_tags,
-                total_entries=result['total_entries'],
-                total_chunks_accessed=result['total_chunks_accessed'],
-                total_operations=result['total_operations'],
-                performance_score=float(result['performance_score']),
-                context_quality_score=float(result['context_quality_score']),
-                created_at=result['created_at'],
-                last_activity=result['last_activity'],
-                archived_at=result['archived_at']
-            )
-            
-        except Exception as e:
-            logger.error(f"Failed to get session from database: {e}")
-            return None
-    
-    def _insert_entry_to_database(self, entry: SessionEntry):
-        """Insert session entry to database"""
-        try:
-            # First, check if session_entries table exists, if not skip for now
-            connection = self.db.get_connection()
-            cursor = connection.cursor()
-            
-            # Check if table exists
-            cursor.execute("SHOW TABLES LIKE 'megamind_session_entries'")
-            table_exists = cursor.fetchone()
-            
-            if not table_exists:
-                logger.warning("megamind_session_entries table does not exist, skipping entry insertion")
-                cursor.close()
-                connection.close()
-                return
-            
-            insert_query = """
-            INSERT INTO megamind_session_entries (
-                entry_id, session_id, entry_type, operation_type, entry_content,
-                content_tokens, content_truncated, original_content_hash,
-                semantic_summary, related_chunk_ids, context_relevance_score,
-                parent_entry_id, entry_sequence, conversation_turn,
-                processing_time_ms, success_indicator, quality_score,
-                entry_metadata, user_feedback, created_at
-            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """
-            
-            related_chunks_json = json.dumps(entry.related_chunk_ids) if entry.related_chunk_ids else None
-            entry_metadata_json = json.dumps(entry.entry_metadata) if entry.entry_metadata else None
-            user_feedback_json = json.dumps(entry.user_feedback) if entry.user_feedback else None
-            
-            cursor.execute(insert_query, (
-                entry.entry_id, entry.session_id, entry.entry_type.value,
-                entry.operation_type, entry.entry_content, entry.content_tokens,
-                entry.content_truncated, entry.original_content_hash,
-                entry.semantic_summary, related_chunks_json, entry.context_relevance_score,
-                entry.parent_entry_id, entry.entry_sequence, entry.conversation_turn,
-                entry.processing_time_ms, entry.success_indicator, entry.quality_score,
-                entry_metadata_json, user_feedback_json, entry.created_at
-            ))
-            
-            connection.commit()
-            cursor.close()
-            connection.close()
-            
-        except Exception as e:
-            logger.error(f"Failed to insert entry to database: {e}")
-            # Don't raise - allow session operations to continue even if entry logging fails
-    
-    def _get_entries_from_database(self, session_id: str, limit: int, offset: int) -> List[SessionEntry]:
-        """Get session entries from database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor(dictionary=True)
-            
-            # Check if table exists
-            cursor.execute("SHOW TABLES LIKE 'megamind_session_entries'")
-            table_exists = cursor.fetchone()
-            
-            if not table_exists:
-                logger.warning("megamind_session_entries table does not exist")
-                cursor.close()
-                connection.close()
-                return []
-            
-            query = """
-            SELECT * FROM megamind_session_entries 
-            WHERE session_id = %s 
-            ORDER BY entry_sequence DESC 
-            LIMIT %s OFFSET %s
-            """
-            
-            cursor.execute(query, (session_id, limit, offset))
-            results = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            
-            entries = []
-            for result in results:
-                related_chunk_ids = json.loads(result['related_chunk_ids']) if result['related_chunk_ids'] else None
-                entry_metadata = json.loads(result['entry_metadata']) if result['entry_metadata'] else None
-                user_feedback = json.loads(result['user_feedback']) if result['user_feedback'] else None
+                await asyncio.sleep(self.config.auto_save_interval_seconds)
                 
-                entry = SessionEntry(
-                    entry_id=result['entry_id'],
-                    session_id=result['session_id'],
-                    entry_type=EntryType(result['entry_type']),
-                    entry_content=result['entry_content'],
-                    operation_type=result['operation_type'],
-                    content_tokens=result['content_tokens'],
-                    content_truncated=bool(result['content_truncated']),
-                    original_content_hash=result['original_content_hash'],
-                    semantic_summary=result['semantic_summary'],
-                    related_chunk_ids=related_chunk_ids,
-                    context_relevance_score=float(result['context_relevance_score']),
-                    parent_entry_id=result['parent_entry_id'],
-                    entry_sequence=result['entry_sequence'],
-                    conversation_turn=result['conversation_turn'],
-                    processing_time_ms=result['processing_time_ms'],
-                    success_indicator=bool(result['success_indicator']),
-                    quality_score=float(result['quality_score']),
-                    entry_metadata=entry_metadata,
-                    user_feedback=user_feedback,
-                    created_at=result['created_at']
-                )
-                entries.append(entry)
-            
-            return entries
-            
-        except Exception as e:
-            logger.error(f"Failed to get entries from database: {e}")
-            return []
-    
-    def _list_sessions_from_database(self, user_id: str, realm_id: str, 
-                                   state_filter: Optional[SessionState], limit: int) -> List[SessionMetadata]:
-        """List sessions from database"""
-        try:
-            connection = self.db.get_connection()
-            cursor = connection.cursor(dictionary=True)
-            
-            if state_filter:
-                query = """
-                SELECT * FROM megamind_sessions 
-                WHERE user_id = %s AND realm_id = %s AND session_state = %s
-                ORDER BY last_activity DESC 
-                LIMIT %s
-                """
-                cursor.execute(query, (user_id, realm_id, state_filter.value, limit))
-            else:
-                query = """
-                SELECT * FROM megamind_sessions 
-                WHERE user_id = %s AND realm_id = %s
-                ORDER BY last_activity DESC 
-                LIMIT %s
-                """
-                cursor.execute(query, (user_id, realm_id, limit))
-            
-            results = cursor.fetchall()
-            cursor.close()
-            connection.close()
-            
-            sessions = []
-            for result in results:
-                session_config = json.loads(result['session_config']) if result['session_config'] else None
-                session_tags = json.loads(result['session_tags']) if result['session_tags'] else None
-                
-                session = SessionMetadata(
-                    session_id=result['session_id'],
-                    session_name=result['session_name'],
-                    user_id=result['user_id'],
-                    realm_id=result['realm_id'],
-                    project_context=result['project_context'],
-                    session_state=SessionState(result['session_state']),
-                    priority=SessionPriority(result['priority']),
-                    enable_semantic_indexing=bool(result['enable_semantic_indexing']),
-                    content_token_limit=result['content_token_limit'],
-                    session_config=session_config,
-                    session_tags=session_tags,
-                    total_entries=result['total_entries'],
-                    total_chunks_accessed=result['total_chunks_accessed'],
-                    total_operations=result['total_operations'],
-                    performance_score=float(result['performance_score']),
-                    context_quality_score=float(result['context_quality_score']),
-                    created_at=result['created_at'],
-                    last_activity=result['last_activity'],
-                    archived_at=result['archived_at']
-                )
-                sessions.append(session)
-            
-            return sessions
-            
-        except Exception as e:
-            logger.error(f"Failed to list sessions from database: {e}")
-            return []
+                if session_id in self._active_sessions:
+                    state = self._active_sessions[session_id]
+                    await self._save_session_state(session_id, state)
+                    logger.debug(f"Auto-saved session {session_id}")
+                    
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                logger.error(f"Error in auto-save for session {session_id}: {e}")

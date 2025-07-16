@@ -79,6 +79,25 @@ Performs 8-dimensional quality assessment on chunks.
 - Technical accuracy validation
 - Coherence measurement
 
+### 5. Sentence Splitter (`sentence_splitter.py`)
+
+Provides robust sentence splitting that handles edge cases.
+
+**Key Features:**
+- Handles abbreviations (Dr., Mr., U.S.A., etc.)
+- Preserves decimal numbers and URLs
+- Intelligent merging of incorrectly split sentences
+- Context-aware splitting decisions
+
+**Usage:**
+```python
+from sentence_splitter import SentenceSplitter
+
+splitter = SentenceSplitter()
+sentences = splitter.split_sentences("Dr. Smith went to the U.S.A. He arrived at 3.14 p.m.")
+print(sentences)  # ['Dr. Smith went to the U.S.A.', 'He arrived at 3.14 p.m.']
+```
+
 **Quality Dimensions:**
 1. **Readability** (15%) - Text clarity and comprehension
 2. **Technical Accuracy** (25%) - Correctness and precision
@@ -146,6 +165,28 @@ The Phase 1 components are designed to integrate with the existing MegaMind MCP 
 "mcp__megamind__content_assess_quality"
 "mcp__megamind__content_optimize_embeddings"
 ```
+
+## Enhanced Features
+
+### Table Preservation
+The system now includes enhanced table detection and preservation:
+- **Markdown pipe tables**: `| col1 | col2 |`
+- **Grid tables** (RST style): `+------+------+`
+- **Simple space-aligned tables**: Column headers with separator lines
+- Tables are kept intact during chunking and never split inappropriately
+
+### Sentence Boundary Detection
+Enhanced sentence splitting that handles:
+- Abbreviations (Dr., U.S.A., etc.)
+- Decimal numbers (3.14, 10.99)
+- URLs and email patterns
+- False positive detection and correction
+
+### Intelligent Chunk Optimization
+- Table-aware chunk merging and splitting
+- Enhanced paragraph splitting using sentence boundaries
+- Clause-based splitting for long sentences
+- Context-preserving optimizations
 
 ## Next Steps (Phase 2)
 

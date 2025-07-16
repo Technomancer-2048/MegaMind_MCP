@@ -36,6 +36,10 @@ from .ai_quality_assessor import (
     QualityIssue
 )
 
+from .sentence_splitter import (
+    SentenceSplitter
+)
+
 __all__ = [
     # Content Analyzer
     'ContentAnalyzer',
@@ -64,7 +68,10 @@ __all__ = [
     'AIQualityAssessor',
     'QualityDimension',
     'QualityScore',
-    'QualityIssue'
+    'QualityIssue',
+    
+    # Sentence Splitter
+    'SentenceSplitter'
 ]
 
 __version__ = '1.0.0'

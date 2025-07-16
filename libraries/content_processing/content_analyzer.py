@@ -95,7 +95,14 @@ class ContentAnalyzer:
             'json': re.compile(r'^\s*[{[]'),
         }
         
-        logger.info("ContentAnalyzer initialized")
+        # Enhanced patterns for better structure detection
+        self.patterns.update({
+            'table_separator': re.compile(r'^\|?[\s\-:|]+\|[\s\-:|]+\|?$', re.MULTILINE),
+            'grid_table': re.compile(r'^\+[\-=]+\+[\-=]+\+$', re.MULTILINE),
+            'simple_table': re.compile(r'^(\S+\s+\S+\s+\S+)$', re.MULTILINE),  # Space-aligned tables
+        })
+        
+        logger.info("ContentAnalyzer initialized with enhanced table detection")
     
     def analyze_document_structure(self, content: str) -> DocumentStructure:
         """
@@ -263,6 +270,10 @@ class ContentAnalyzer:
                     }
                 )
                 elements.append(element)
+        
+        # Extract tables with enhanced detection
+        tables = self._extract_tables_enhanced(content, lines)
+        elements.extend(tables)
         
         # Extract paragraphs (content between other elements)
         elements = self._extract_paragraphs(content, elements, lines)
@@ -455,3 +466,123 @@ class ContentAnalyzer:
         if language_counts:
             return max(language_counts.items(), key=lambda x: x[1])[0]
         return None
+    
+    def _extract_tables_enhanced(self, content: str, lines: List[str]) -> List[MarkdownElement]:
+        """Extract complete tables as single elements with enhanced detection"""
+        tables = []
+        in_table = False
+        table_start = -1
+        table_lines = []
+        table_type = None
+        
+        for i, line in enumerate(lines):
+            # Detect table start
+            if not in_table:
+                # Markdown pipe table
+                if '|' in line and self._is_table_row_enhanced(line):
+                    in_table = True
+                    table_start = i
+                    table_lines = [line]
+                    table_type = 'pipe'
+                
+                # Grid table (RST style)
+                elif self.patterns['grid_table'].match(line):
+                    in_table = True
+                    table_start = i
+                    table_lines = [line]
+                    table_type = 'grid'
+                
+                # Simple space-aligned table
+                elif i < len(lines) - 1 and self._is_simple_table_header(line, lines[i+1] if i+1 < len(lines) else ''):
+                    in_table = True
+                    table_start = i
+                    table_lines = [line]
+                    table_type = 'simple'
+            
+            # Continue table
+            else:
+                if table_type == 'pipe':
+                    if '|' in line or self.patterns['table_separator'].match(line):
+                        table_lines.append(line)
+                    else:
+                        # End of table
+                        tables.append(self._create_table_element_enhanced(table_lines, table_start, i-1, table_type))
+                        in_table = False
+                
+                elif table_type == 'grid':
+                    table_lines.append(line)
+                    if self.patterns['grid_table'].match(line) and len(table_lines) > 2:
+                        # End of grid table
+                        tables.append(self._create_table_element_enhanced(table_lines, table_start, i, table_type))
+                        in_table = False
+                
+                elif table_type == 'simple':
+                    if line.strip() and not line.startswith(' ' * 4):  # Not indented
+                        table_lines.append(line)
+                    else:
+                        # End of simple table
+                        tables.append(self._create_table_element_enhanced(table_lines, table_start, i-1, table_type))
+                        in_table = False
+        
+        # Handle table at end of document
+        if in_table and table_lines:
+            tables.append(self._create_table_element_enhanced(table_lines, table_start, len(lines)-1, table_type))
+        
+        return tables
+    
+    def _is_table_row_enhanced(self, line: str) -> bool:
+        """Check if a line is likely a table row with enhanced detection"""
+        # Count pipes, excluding escaped pipes
+        pipe_count = len(re.findall(r'(?<!\\)\|', line))
+        
+        # Likely a table if has 2+ pipes and some content between them
+        if pipe_count >= 2:
+            cells = re.split(r'(?<!\\)\|', line)
+            non_empty_cells = [c for c in cells if c.strip()]
+            return len(non_empty_cells) >= 2
+        
+        return False
+    
+    def _is_simple_table_header(self, line: str, next_line: str) -> bool:
+        """Check if this might be a simple table header with separator line"""
+        # Look for multiple words separated by spaces
+        if len(line.split()) >= 2:
+            # Check if next line is all dashes or equals
+            if re.match(r'^[\-=\s]+$', next_line):
+                # Ensure the separator aligns roughly with the header
+                return len(next_line.strip()) >= len(line.strip()) * 0.8
+        return False
+    
+    def _create_table_element_enhanced(self, lines: List[str], start: int, end: int, table_type: str) -> MarkdownElement:
+        """Create a table element with enhanced metadata"""
+        content = '\n'.join(lines)
+        
+        # Extract table metadata
+        metadata = {
+            'table_type': table_type,
+            'row_count': len(lines),
+            'estimated_columns': self._estimate_columns_enhanced(lines, table_type)
+        }
+        
+        return MarkdownElement(
+            element_type=MarkdownElementType.TABLE,
+            content=content,
+            raw_content=content,
+            line_start=start + 1,  # Convert to 1-based
+            line_end=end + 1,
+            metadata=metadata
+        )
+    
+    def _estimate_columns_enhanced(self, lines: List[str], table_type: str) -> int:
+        """Estimate number of columns in table with enhanced detection"""
+        if table_type == 'pipe':
+            # Count pipes in first row
+            for line in lines:
+                if '|' in line and not self.patterns['table_separator'].match(line):
+                    return len(re.split(r'(?<!\\)\|', line)) - 1
+        elif table_type == 'simple':
+            # Estimate columns from space-separated content
+            for line in lines:
+                if line.strip() and not re.match(r'^[\-=\s]+$', line):
+                    return len(line.split())
+        return 0

@@ -11,7 +11,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass, field
 from enum import Enum
 
-from intelligent_chunker import Chunk, ChunkType
+from .intelligent_chunker import Chunk, ChunkType
 
 logger = logging.getLogger(__name__)
 
