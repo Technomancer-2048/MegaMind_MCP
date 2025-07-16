@@ -129,6 +129,9 @@ services:
       # Phase 2 Enhanced Functions Configuration
       MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS: ${MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS:-false}
       
+      # Phase 3 ML Enhanced Functions Configuration
+      MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS: ${MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS:-false}
+      
       # Model Cache Configuration
       HF_HOME: /app/.cache/huggingface
       TRANSFORMERS_CACHE: /app/.cache/huggingface

@@ -65,6 +65,10 @@ COPY mcp_server/consolidated_mcp_server.py ./mcp_server/
 COPY mcp_server/phase2_enhanced_functions.py ./mcp_server/
 COPY mcp_server/phase2_enhanced_server.py ./mcp_server/
 
+# Copy Phase 3 ML Enhanced Functions files
+COPY mcp_server/phase3_ml_enhanced_functions.py ./mcp_server/
+COPY mcp_server/phase3_ml_enhanced_server.py ./mcp_server/
+
 # Copy Phase 1 content processing libraries
 COPY libraries/ ./libraries/
 

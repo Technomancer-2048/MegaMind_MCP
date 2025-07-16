@@ -21,6 +21,7 @@ try:
     from .megamind_database_server import MCPServer
     from .consolidated_mcp_server import ConsolidatedMCPServer
     from .phase2_enhanced_server import Phase2EnhancedMCPServer
+    from .phase3_ml_enhanced_server import Phase3MLEnhancedMCPServer
     from .enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from .dynamic_realm_validator import RealmConfigValidator
     from .dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -31,6 +32,7 @@ except ImportError:
     from megamind_database_server import MCPServer
     from consolidated_mcp_server import ConsolidatedMCPServer
     from phase2_enhanced_server import Phase2EnhancedMCPServer
+    from phase3_ml_enhanced_server import Phase3MLEnhancedMCPServer
     from enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from dynamic_realm_validator import RealmConfigValidator
     from dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -350,11 +352,15 @@ class HTTPMCPTransport:
                 logger.debug(f"Using static realm manager for {realm_context.realm_id}")
             
             # Create MCP server instance for this request
-            # Check for Phase 2 enhanced functions first, then Phase 1 consolidation
+            # Check for Phase 3 ML enhanced functions first, then Phase 2, then Phase 1 consolidation
+            use_phase3_ml_enhanced = os.getenv('MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS', 'false').lower() == 'true'
             use_phase2_enhanced = os.getenv('MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS', 'false').lower() == 'true'
             use_consolidated = os.getenv('MEGAMIND_USE_CONSOLIDATED_FUNCTIONS', 'true').lower() == 'true'
             
-            if use_phase2_enhanced:
+            if use_phase3_ml_enhanced:
+                logger.debug("Using Phase 3 ML enhanced MCP server with 38 advanced ML functions")
+                mcp_server = Phase3MLEnhancedMCPServer(realm_manager)
+            elif use_phase2_enhanced:
                 logger.debug("Using Phase 2 enhanced MCP server with 29 advanced functions")
                 mcp_server = Phase2EnhancedMCPServer(realm_manager)
             elif use_consolidated:
