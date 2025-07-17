@@ -211,7 +211,7 @@ class HardenedJSONParser:
         
         # Limit line length to prevent buffer overflow attacks
         lines = sanitized.split('\n')
-        max_line_length = 10000
+        max_line_length = 50000  # Increased from 10000 to handle MCP function responses
         sanitized_lines = [
             line[:max_line_length] if len(line) > max_line_length else line
             for line in lines

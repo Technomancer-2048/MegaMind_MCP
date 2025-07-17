@@ -784,3 +784,117 @@ echo '{"jsonrpc":"2.0","method":"notifications/initialized"}' | python3 stdio_ht
 ```
 
 This protocol implementation ensures reliable Claude Code connectivity and prevents common connection timeout and handshake failures.
+
+## GitHub Issue Management
+
+When creating GitHub issues for bugs, features, or documentation, use the `gh` CLI tool for efficient issue management:
+
+### **Creating Issues**
+
+**Basic Issue Creation**:
+```bash
+gh issue create --title "Bug: JSON parsing fails in STDIO bridge" --body "Detailed description of the issue..."
+```
+
+**Issue with Template**:
+```bash
+gh issue create --title "🐛 Critical Bug: JSON Response Truncation" --body-file docs/GitHub_Issue_JSON_Parsing_Bug.md --label "bug,critical,mcp-server"
+```
+
+**Interactive Issue Creation**:
+```bash
+gh issue create
+# Follow prompts for title, body, labels, assignees, etc.
+```
+
+### **Issue Management Commands**
+
+**List Issues**:
+```bash
+gh issue list                    # List all open issues
+gh issue list --state=all       # List all issues (open and closed)
+gh issue list --label="bug"     # Filter by label
+gh issue list --assignee=@me    # Show issues assigned to you
+```
+
+**View Issue Details**:
+```bash
+gh issue view 123               # View issue #123
+gh issue view --web 123        # Open issue #123 in browser
+```
+
+**Update Issues**:
+```bash
+gh issue edit 123 --title "Updated title"
+gh issue edit 123 --add-label "enhancement"
+gh issue edit 123 --remove-label "bug"
+gh issue close 123 --comment "Fixed in commit abc123"
+```
+
+### **Issue Creation Best Practices**
+
+**Use Descriptive Titles**:
+- ✅ `🐛 Critical Bug: JSON Response Truncation in HardenedJSONParser`  
+- ❌ `JSON bug`
+
+**Include Proper Labels**:
+- `bug` - For bug reports
+- `critical` - For high-priority issues
+- `enhancement` - For feature requests
+- `mcp-server` - For MCP server related issues
+- `documentation` - For documentation updates
+
+**Structured Issue Body**:
+```markdown
+## Summary
+Brief description of the issue
+
+## Steps to Reproduce
+1. Step one
+2. Step two
+
+## Expected Behavior
+What should happen
+
+## Actual Behavior  
+What actually happens
+
+## Environment
+- OS: Linux
+- Version: Phase 5 AGI Ready
+- Component: MCP Server
+
+## Additional Context
+Any other relevant information
+```
+
+### **Integration with Development Workflow**
+
+**Create Issue from Problem Discovery**:
+```bash
+# After discovering a bug during development
+gh issue create --title "🐛 Bug: Function name truncation" \
+  --body "Found during MCP function testing..." \
+  --label "bug,mcp-server" \
+  --assignee @me
+```
+
+**Link Issues to Pull Requests**:
+```bash
+# When creating PR that fixes an issue
+gh pr create --title "Fix: JSON parsing truncation" \
+  --body "Fixes #123. Increased max_line_length from 10000 to 50000"
+```
+
+**Close Issues via Commit Messages**:
+```bash
+git commit -m "Fix JSON parsing truncation
+
+Increased max_line_length in HardenedJSONParser from 10000 to 50000
+to handle MCP function responses up to 50KB.
+
+Fixes #123
+Closes #124"
+```
+
+This GitHub integration ensures proper issue tracking and maintains clear development history for the MegaMind MCP project.
