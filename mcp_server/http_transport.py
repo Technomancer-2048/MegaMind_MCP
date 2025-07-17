@@ -23,6 +23,7 @@ try:
     from .phase2_enhanced_server import Phase2EnhancedMCPServer
     from .phase3_ml_enhanced_server import Phase3MLEnhancedMCPServer
     from .phase4_advanced_ai_server import Phase4AdvancedAIMCPServer
+    from .phase5_next_generation_ai_server import Phase5NextGenerationAIMCPServer
     from .enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from .dynamic_realm_validator import RealmConfigValidator
     from .dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -35,6 +36,7 @@ except ImportError:
     from phase2_enhanced_server import Phase2EnhancedMCPServer
     from phase3_ml_enhanced_server import Phase3MLEnhancedMCPServer
     from phase4_advanced_ai_server import Phase4AdvancedAIMCPServer
+    from phase5_next_generation_ai_server import Phase5NextGenerationAIMCPServer
     from enhanced_security_pipeline import EnhancedSecurityPipeline, SecurityContext, SecurityLevel, ValidationOutcome
     from dynamic_realm_validator import RealmConfigValidator
     from dynamic_realm_audit_logger import DynamicRealmAuditLogger
@@ -354,13 +356,17 @@ class HTTPMCPTransport:
                 logger.debug(f"Using static realm manager for {realm_context.realm_id}")
             
             # Create MCP server instance for this request
-            # Check for Phase 4 Advanced AI first, then Phase 3 ML, then Phase 2, then Phase 1 consolidation
+            # Check for Phase 5 Next-Generation AI first, then Phase 4, Phase 3, Phase 2, then Phase 1 consolidation
+            use_phase5_next_generation_ai = os.getenv('MEGAMIND_USE_PHASE5_NEXT_GENERATION_AI_FUNCTIONS', 'false').lower() == 'true'
             use_phase4_advanced_ai = os.getenv('MEGAMIND_USE_PHASE4_ADVANCED_AI_FUNCTIONS', 'false').lower() == 'true'
             use_phase3_ml_enhanced = os.getenv('MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS', 'false').lower() == 'true'
             use_phase2_enhanced = os.getenv('MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS', 'false').lower() == 'true'
             use_consolidated = os.getenv('MEGAMIND_USE_CONSOLIDATED_FUNCTIONS', 'true').lower() == 'true'
             
-            if use_phase4_advanced_ai:
+            if use_phase5_next_generation_ai:
+                logger.debug("Using Phase 5 Next-Generation AI MCP server with 56 next-generation AI functions")
+                mcp_server = Phase5NextGenerationAIMCPServer(realm_manager)
+            elif use_phase4_advanced_ai:
                 logger.debug("Using Phase 4 Advanced AI MCP server with 46 advanced AI functions")
                 mcp_server = Phase4AdvancedAIMCPServer(realm_manager)
             elif use_phase3_ml_enhanced:
