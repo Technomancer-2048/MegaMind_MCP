@@ -129,6 +129,9 @@ services:
       # Phase 2 Enhanced Functions Configuration
       MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS: ${MEGAMIND_USE_PHASE2_ENHANCED_FUNCTIONS:-false}
       
+      # Phase 4 Advanced AI Functions Configuration
+      MEGAMIND_USE_PHASE4_ADVANCED_AI_FUNCTIONS: ${MEGAMIND_USE_PHASE4_ADVANCED_AI_FUNCTIONS:-false}
+      
       # Phase 3 ML Enhanced Functions Configuration
       MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS: ${MEGAMIND_USE_PHASE3_ML_ENHANCED_FUNCTIONS:-false}
       
