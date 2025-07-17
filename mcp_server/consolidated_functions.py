@@ -836,8 +836,7 @@ class ConsolidatedMCPFunctions:
                 return self.db.session_track_action_dual_realm(
                     session_id=session_id,
                     action_type=kwargs.get("action_type", "unknown"),
-                    action_details=kwargs.get("action_details", {}),
-                    metadata=kwargs.get("metadata", {})
+                    action_details=kwargs.get("action_details", {})
                 )
                 
             elif action == "prime_context":

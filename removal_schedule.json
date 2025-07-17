@@ -1,0 +1,237 @@
+{
+  "removal_timeline": {
+    "phase_1_duration": 14,
+    "phase_2_duration": 14,
+    "phase_3_duration": 14,
+    "phase_4_duration": 0
+  },
+  "warning_frequencies": {
+    "standard": 1,
+    "elevated": 1,
+    "critical": 1,
+    "final": 1
+  },
+  "functions": {
+    "search_chunks": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 128,
+      "last_warning": "2025-07-18T06:16:24.493113",
+      "warnings_sent": 128
+    },
+    "get_chunk": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_related_chunks": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "search_chunks_semantic": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "search_chunks_by_similarity": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "create_chunk": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 4,
+      "last_warning": "2025-07-18T06:16:24.493482",
+      "warnings_sent": 4
+    },
+    "update_chunk": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "add_relationship": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "batch_generate_embeddings": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "create_promotion_request": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_promotion_requests": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "approve_promotion_request": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "reject_promotion_request": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_promotion_impact": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_promotion_queue_summary": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_session_primer": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_pending_changes": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "commit_session_changes": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "track_access": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    },
+    "get_hot_contexts": {
+      "deployment_date": "2025-07-18T06:15:44.508814",
+      "phase_1_end": "2025-08-01T06:15:44.508814",
+      "phase_2_end": "2025-08-15T06:15:44.508814",
+      "phase_3_end": "2025-08-29T06:15:44.508814",
+      "removal_date": "2025-08-29T06:15:44.508814",
+      "current_phase": "active",
+      "usage_count": 0,
+      "last_warning": null,
+      "warnings_sent": 0
+    }
+  },
+  "deployment_date": "2025-07-18T06:15:44.508814"
+}

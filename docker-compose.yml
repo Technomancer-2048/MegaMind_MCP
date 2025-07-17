@@ -169,6 +169,9 @@ services:
       AGI_CONSCIOUSNESS_LEVEL: ${AGI_CONSCIOUSNESS_LEVEL:-simulated}
       AGI_SELF_AWARENESS_ENABLED: ${AGI_SELF_AWARENESS_ENABLED:-false}
       
+      # GitHub Issue #20 - Direct Commit Mode Configuration
+      MEGAMIND_DIRECT_COMMIT_MODE: ${MEGAMIND_DIRECT_COMMIT_MODE:-false}
+      
       # Model Cache Configuration
       HF_HOME: /app/.cache/huggingface
       TRANSFORMERS_CACHE: /app/.cache/huggingface

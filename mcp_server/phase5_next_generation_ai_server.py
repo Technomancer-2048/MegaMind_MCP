@@ -701,8 +701,24 @@ class Phase5NextGenerationAIMCPServer(Phase4AdvancedAIMCPServer):
                 self._update_agi_metrics('quantum_optimization', time.time() - start_time)
                 
             else:
-                # Delegate to Phase 4 functions
-                return await super()._handle_tools_call(request)
+                # Check if this is a master consolidated function
+                tool_name = request.get('params', {}).get('name', '')
+                master_functions = [
+                    'mcp__megamind__search_query', 'mcp__megamind__search_related', 'mcp__megamind__search_retrieve',
+                    'mcp__megamind__content_create', 'mcp__megamind__content_update', 'mcp__megamind__content_process', 'mcp__megamind__content_manage',
+                    'mcp__megamind__promotion_request', 'mcp__megamind__promotion_review', 'mcp__megamind__promotion_monitor',
+                    'mcp__megamind__session_create', 'mcp__megamind__session_manage', 'mcp__megamind__session_review', 'mcp__megamind__session_commit',
+                    'mcp__megamind__ai_enhance', 'mcp__megamind__ai_learn', 'mcp__megamind__ai_analyze',
+                    'mcp__megamind__analytics_track', 'mcp__megamind__analytics_insights'
+                ]
+                
+                if tool_name in master_functions:
+                    # Delegate to ConsolidatedMCPServer's handle_tool_call method
+                    params = request.get('params', {})
+                    return await self.handle_tool_call(params, request.get('id'))
+                else:
+                    # Delegate to Phase 4 functions
+                    return await super()._handle_tools_call(request)
             
             # Add Phase 5 metadata to result
             if isinstance(result, dict):
