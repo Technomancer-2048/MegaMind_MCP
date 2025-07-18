@@ -158,11 +158,32 @@ mcp__megamind__search_query("Development Guidelines Container Testing")
 
 ## 🔧 Essential Commands
 
-### GitHub Issue Management
+### GitHub CLI Command Reference
 ```bash
+# Quick examples - for comprehensive commands, use MCP search:
 gh issue create --title "🐛 Bug: Description" --label "bug,mcp-server"
-gh issue list --label="bug"
-gh issue close 123 --comment "Fixed in commit abc123"
+gh pr create --title "Fix: Description" --body "Fixes #123"
+gh repo view --web
+gh workflow run "CI"
+gh search repos "MCP server" --language=Python
+```
+
+**📋 For comprehensive GitHub CLI documentation:**
+```python
+# Issue management commands and best practices
+mcp__megamind__search_query("GitHub CLI Issue Management Commands")
+
+# Pull request workflows and review processes  
+mcp__megamind__search_query("GitHub CLI Pull Request Management Commands")
+
+# Repository management and configuration
+mcp__megamind__search_query("GitHub CLI Repository Management Commands")
+
+# Actions, workflows, and CI/CD operations
+mcp__megamind__search_query("GitHub CLI Actions and Workflow Commands")
+
+# Search and discovery across GitHub
+mcp__megamind__search_query("GitHub CLI Search and Discovery Commands")
 ```
 
 ---

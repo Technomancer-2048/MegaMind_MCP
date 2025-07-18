@@ -19,10 +19,17 @@ CREATE TABLE IF NOT EXISTS megamind_chunks (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     last_accessed TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     access_count INT DEFAULT 0,
+    approval_status ENUM('pending', 'approved', 'rejected') DEFAULT 'pending',
+    approved_at TIMESTAMP NULL,
+    approved_by VARCHAR(100) NULL,
+    rejection_reason TEXT NULL,
     INDEX idx_source_doc (source_document),
     INDEX idx_chunk_type (chunk_type),
     INDEX idx_access_count (access_count DESC),
     INDEX idx_chunks_realm (realm_id),
+    INDEX idx_approval_status (approval_status, created_at DESC),
+    INDEX idx_approval_status_realm (approval_status, realm_id),
+    INDEX idx_approved_by (approved_by),
     FULLTEXT(content, section_path)
 );
 
