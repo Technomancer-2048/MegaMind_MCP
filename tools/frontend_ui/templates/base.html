@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Chunk Review Interface{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/chunk_review.css') }}">
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header class="main-header">
+        <nav class="navbar">
+            <div class="nav-brand">
+                <h1><a href="{{ url_for('dashboard') }}">MegaMind Chunk Review</a></h1>
+            </div>
+            <div class="nav-links">
+                <a href="{{ url_for('dashboard') }}" class="nav-link">Review Dashboard</a>
+                <a href="{{ url_for('health_check') }}" class="nav-link">Health Check</a>
+            </div>
+        </nav>
+    </header>
+
+    <main class="main-content">
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer class="main-footer">
+        <p>&copy; 2024 MegaMind Context Database System - Frontend UI v1.0</p>
+    </footer>
+
+    <!-- Core JavaScript -->
+    <script>
+        // Global configuration
+        window.APP_CONFIG = {
+            apiBase: '/api',
+            refreshInterval: 30000 // 30 seconds
+        };
+
+        // Global utilities
+        window.Utils = {
+            formatDate: function(dateString) {
+                if (!dateString) return 'N/A';
+                return new Date(dateString).toLocaleString();
+            },
+            
+            formatNumber: function(num) {
+                if (num === null || num === undefined) return 'N/A';
+                return num.toLocaleString();
+            },
+            
+            truncateText: function(text, maxLength = 100) {
+                if (!text || text.length <= maxLength) return text;
+                return text.substring(0, maxLength) + '...';
+            },
+            
+            showNotification: function(message, type = 'info') {
+                // Simple notification system
+                const notification = document.createElement('div');
+                notification.className = `notification notification-${type}`;
+                notification.textContent = message;
+                
+                document.body.appendChild(notification);
+                
+                setTimeout(() => {
+                    notification.remove();
+                }, 5000);
+            },
+            
+            makeRequest: async function(url, options = {}) {
+                try {
+                    const response = await fetch(url, {
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...options.headers
+                        },
+                        ...options
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (!response.ok) {
+                        throw new Error(data.error || 'Request failed');
+                    }
+                    
+                    return data;
+                } catch (error) {
+                    console.error('Request error:', error);
+                    throw error;
+                }
+            }
+        };
+    </script>
+    
+    {% block scripts %}{% endblock %}
+</body>
+</html>

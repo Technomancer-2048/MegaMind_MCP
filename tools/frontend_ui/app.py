@@ -1,0 +1,314 @@
+from flask import Flask, render_template, request, jsonify
+from core.chunk_service import ChunkService
+from core.search_service import SearchService
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+app = Flask(__name__)
+
+# Initialize services with megamind_database
+chunk_service = ChunkService(
+    host=os.getenv('DB_HOST', 'localhost'),
+    port=int(os.getenv('DB_PORT', 3306)),
+    database=os.getenv('DB_NAME', 'megamind_database'),
+    user=os.getenv('DB_USER', 'dev'),
+    password=os.getenv('DB_PASSWORD', '')
+)
+search_service = SearchService(chunk_service)
+
+@app.route('/')
+def dashboard():
+    """Main dashboard with chunk review interface"""
+    return render_template('chunk_review.html')
+
+@app.route('/api/chunks/pending')
+def get_pending_chunks():
+    """Get chunks pending approval based on approval_status"""
+    limit = request.args.get('limit', 50, type=int)
+    chunks = chunk_service.get_pending_approval(limit=limit)
+    
+    return jsonify({
+        'success': True,
+        'chunks': chunks,
+        'count': len(chunks)
+    })
+
+@app.route('/api/chunks/stats')
+def get_chunk_stats():
+    """Get approval statistics for dashboard"""
+    stats = chunk_service.get_approval_stats()
+    return jsonify(stats)
+
+@app.route('/api/chunks/approve', methods=['POST'])
+def approve_chunks():
+    """Batch approve chunks by updating approval_status"""
+    try:
+        data = request.get_json()
+        chunk_ids = data.get('chunk_ids', [])
+        approved_by = data.get('approved_by', 'frontend_ui')
+        
+        if not chunk_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No chunk IDs provided'
+            }), 400
+        
+        result = chunk_service.approve_chunks(chunk_ids, approved_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error approving chunks: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/reject', methods=['POST'])
+def reject_chunks():
+    """Batch reject chunks with reason"""
+    try:
+        data = request.get_json()
+        chunk_ids = data.get('chunk_ids', [])
+        rejection_reason = data.get('rejection_reason', 'Rejected via frontend')
+        rejected_by = data.get('rejected_by', 'frontend_ui')
+        
+        if not chunk_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No chunk IDs provided'
+            }), 400
+        
+        if not rejection_reason.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Rejection reason is required'
+            }), 400
+        
+        result = chunk_service.reject_chunks(chunk_ids, rejection_reason, rejected_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error rejecting chunks: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/search/simulate', methods=['POST'])
+def simulate_search():
+    """Simulate agent search using FULLTEXT search on content"""
+    try:
+        data = request.get_json()
+        query = data.get('query', '')
+        limit = data.get('limit', 10)
+        
+        if not query.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Query is required'
+            }), 400
+        
+        results = search_service.simulate_agent_search(query, limit)
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'count': len(results),
+            'query': query
+        })
+        
+    except Exception as e:
+        logger.error(f"Error simulating search: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/search/realm', methods=['POST'])
+def search_by_realm():
+    """Search chunks within a specific realm"""
+    try:
+        data = request.get_json()
+        query = data.get('query', '')
+        realm_id = data.get('realm_id', '')
+        limit = data.get('limit', 10)
+        
+        if not query.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Query is required'
+            }), 400
+        
+        if not realm_id.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Realm ID is required'
+            }), 400
+        
+        results = search_service.search_by_realm(query, realm_id, limit)
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'count': len(results),
+            'query': query,
+            'realm_id': realm_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error searching by realm: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/<chunk_id>/context')
+def get_chunk_context(chunk_id):
+    """Get chunk with surrounding context for boundary visualization"""
+    try:
+        chunk_data = chunk_service.get_chunk_with_context(chunk_id)
+        
+        if 'error' in chunk_data:
+            return jsonify({
+                'success': False,
+                'error': chunk_data['error']
+            }), 404
+        
+        return jsonify({
+            'success': True,
+            'data': chunk_data
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting chunk context: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/<chunk_id>/relationships')
+def get_chunk_relationships(chunk_id):
+    """Get related chunks for a specific chunk"""
+    try:
+        relationships = search_service.get_chunk_relationships(chunk_id)
+        
+        return jsonify({
+            'success': True,
+            'relationships': relationships,
+            'count': len(relationships),
+            'chunk_id': chunk_id
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting chunk relationships: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/search/recent')
+def get_recent_searches():
+    """Get recently accessed chunks"""
+    try:
+        limit = request.args.get('limit', 10, type=int)
+        results = search_service.get_recent_searches(limit)
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'count': len(results)
+        })
+        
+    except Exception as e:
+        logger.error(f"Error getting recent searches: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/health')
+def health_check():
+    """Health check endpoint for monitoring"""
+    try:
+        db_connected = chunk_service.test_connection()
+        
+        if db_connected:
+            # Get basic stats to ensure database is accessible
+            stats = chunk_service.get_approval_stats()
+            
+            return jsonify({
+                'status': 'healthy',
+                'database': 'connected',
+                'timestamp': chunk_service._get_connection().cursor().execute("SELECT NOW()"),
+                'stats': stats
+            })
+        else:
+            return jsonify({
+                'status': 'unhealthy',
+                'database': 'disconnected',
+                'error': 'Database connection failed'
+            }), 503
+            
+    except Exception as e:
+        logger.error(f"Health check failed: {e}")
+        return jsonify({
+            'status': 'unhealthy',
+            'error': str(e)
+        }), 503
+
+@app.route('/api/config')
+def get_config():
+    """Get current configuration"""
+    return jsonify({
+        'database': {
+            'host': chunk_service.db_config['host'],
+            'port': chunk_service.db_config['port'],
+            'database': chunk_service.db_config['database'],
+            'user': chunk_service.db_config['user']
+        },
+        'environment': {
+            'DB_HOST': os.getenv('DB_HOST', 'localhost'),
+            'DB_PORT': os.getenv('DB_PORT', '3306'),
+            'DB_NAME': os.getenv('DB_NAME', 'megamind_database'),
+            'ENVIRONMENT': os.getenv('ENVIRONMENT', 'development')
+        }
+    })
+
+# Error handlers
+@app.errorhandler(404)
+def not_found(error):
+    return jsonify({
+        'success': False,
+        'error': 'Endpoint not found'
+    }), 404
+
+@app.errorhandler(500)
+def internal_error(error):
+    logger.error(f"Internal server error: {error}")
+    return jsonify({
+        'success': False,
+        'error': 'Internal server error'
+    }), 500
+
+if __name__ == '__main__':
+    # Load environment variables
+    from dotenv import load_dotenv
+    load_dotenv()
+    
+    # Configure logging level
+    log_level = os.getenv('LOG_LEVEL', 'INFO')
+    logging.getLogger().setLevel(getattr(logging, log_level))
+    
+    # Test database connection on startup
+    if chunk_service.test_connection():
+        logger.info("Database connection successful")
+    else:
+        logger.error("Database connection failed - service may not work properly")
+    
+    # Run the application
+    debug_mode = os.getenv('ENVIRONMENT', 'development') == 'development'
+    app.run(host='0.0.0.0', port=5004, debug=debug_mode)

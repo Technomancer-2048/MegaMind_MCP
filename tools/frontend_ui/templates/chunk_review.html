@@ -1,0 +1,668 @@
+{% extends "base.html" %}
+
+{% block title %}Chunk Review Dashboard{% endblock %}
+
+{% block head %}
+<style>
+    .loading { display: none; }
+    .loading.active { display: block; }
+    .error { color: #dc3545; }
+    .success { color: #28a745; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="dashboard-header">
+        <h2>Chunk Review Dashboard</h2>
+        <div class="stats-panel" id="statsPanel">
+            <div class="stat-item">
+                <span class="stat-label">Pending:</span>
+                <span class="stat-value" id="pendingCount">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Approved:</span>
+                <span class="stat-value" id="approvedCount">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Rejected:</span>
+                <span class="stat-value" id="rejectedCount">-</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Total:</span>
+                <span class="stat-value" id="totalCount">-</span>
+            </div>
+        </div>
+        <div class="controls">
+            <button id="refreshData" class="btn btn-primary">Refresh Data</button>
+            <button id="loadMoreChunks" class="btn btn-secondary">Load More</button>
+        </div>
+    </div>
+
+    <div class="main-workspace">
+        <!-- Chunk Display Area -->
+        <section class="chunk-display">
+            <div class="chunk-header">
+                <h3>Pending Chunks</h3>
+                <div class="chunk-controls">
+                    <button id="selectAllChunks" class="btn btn-sm btn-outline">Select All</button>
+                    <button id="clearSelection" class="btn btn-sm btn-outline">Clear Selection</button>
+                </div>
+            </div>
+            
+            <div class="chunk-list" id="chunkList">
+                <div class="loading" id="loadingChunks">
+                    <p>Loading chunks...</p>
+                </div>
+                <div class="no-chunks" id="noChunks" style="display: none;">
+                    <p>No pending chunks found.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Control Panel -->
+        <aside class="control-panel">
+            <div class="panel-section">
+                <h3>Bulk Actions</h3>
+                <div class="action-buttons">
+                    <button id="approveSelected" class="btn btn-success" disabled>
+                        Approve Selected (<span id="selectedCount">0</span>)
+                    </button>
+                    <button id="rejectSelected" class="btn btn-danger" disabled>
+                        Reject Selected
+                    </button>
+                </div>
+            </div>
+
+            <div class="panel-section rejection-panel" id="rejectionPanel" style="display: none;">
+                <h4>Rejection Reason</h4>
+                <textarea id="rejectionReason" placeholder="Enter reason for rejection..." rows="3"></textarea>
+                <div class="rejection-actions">
+                    <button id="confirmReject" class="btn btn-danger">Confirm Rejection</button>
+                    <button id="cancelReject" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Search Tester</h3>
+                <div class="search-controls">
+                    <input type="text" id="searchQuery" placeholder="Enter search query..." class="form-control">
+                    <button id="testSearch" class="btn btn-info">Test Query</button>
+                </div>
+                <div class="search-results" id="searchResults"></div>
+            </div>
+
+            <div class="panel-section">
+                <h3>Recent Activity</h3>
+                <div class="recent-activity" id="recentActivity">
+                    <p>Loading recent activity...</p>
+                </div>
+            </div>
+        </aside>
+    </div>
+</div>
+
+<!-- Modal for Chunk Details -->
+<div class="modal" id="chunkModal" style="display: none;">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3>Chunk Details</h3>
+            <button class="modal-close" id="closeModal">&times;</button>
+        </div>
+        <div class="modal-body" id="modalBody">
+            <!-- Chunk details will be populated here -->
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Main application class
+    class ChunkReviewApp {
+        constructor() {
+            this.selectedChunks = new Set();
+            this.currentChunks = [];
+            this.currentPage = 1;
+            this.pageSize = 20;
+            
+            this.initializeApp();
+        }
+        
+        async initializeApp() {
+            this.bindEvents();
+            await this.loadInitialData();
+            this.startPeriodicRefresh();
+        }
+        
+        bindEvents() {
+            // Refresh controls
+            document.getElementById('refreshData').addEventListener('click', () => this.refreshData());
+            document.getElementById('loadMoreChunks').addEventListener('click', () => this.loadMoreChunks());
+            
+            // Selection controls
+            document.getElementById('selectAllChunks').addEventListener('click', () => this.selectAllChunks());
+            document.getElementById('clearSelection').addEventListener('click', () => this.clearSelection());
+            
+            // Approval actions
+            document.getElementById('approveSelected').addEventListener('click', () => this.approveSelected());
+            document.getElementById('rejectSelected').addEventListener('click', () => this.showRejectionPanel());
+            
+            // Rejection panel
+            document.getElementById('confirmReject').addEventListener('click', () => this.confirmReject());
+            document.getElementById('cancelReject').addEventListener('click', () => this.hideRejectionPanel());
+            
+            // Search tester
+            document.getElementById('testSearch').addEventListener('click', () => this.testSearch());
+            document.getElementById('searchQuery').addEventListener('keypress', (e) => {
+                if (e.key === 'Enter') this.testSearch();
+            });
+            
+            // Modal controls
+            document.getElementById('closeModal').addEventListener('click', () => this.closeModal());
+        }
+        
+        async loadInitialData() {
+            await Promise.all([
+                this.loadStats(),
+                this.loadChunks(),
+                this.loadRecentActivity()
+            ]);
+        }
+        
+        async loadStats() {
+            try {
+                const response = await Utils.makeRequest('/api/chunks/stats');
+                this.updateStats(response);
+            } catch (error) {
+                console.error('Failed to load stats:', error);
+                Utils.showNotification('Failed to load statistics', 'error');
+            }
+        }
+        
+        updateStats(stats) {
+            document.getElementById('pendingCount').textContent = Utils.formatNumber(stats.pending);
+            document.getElementById('approvedCount').textContent = Utils.formatNumber(stats.approved);
+            document.getElementById('rejectedCount').textContent = Utils.formatNumber(stats.rejected);
+            document.getElementById('totalCount').textContent = Utils.formatNumber(stats.total);
+        }
+        
+        async loadChunks(reset = true) {
+            if (reset) {
+                this.currentChunks = [];
+                this.currentPage = 1;
+            }
+            
+            const loadingElement = document.getElementById('loadingChunks');
+            loadingElement.classList.add('active');
+            
+            try {
+                const response = await Utils.makeRequest(`/api/chunks/pending?limit=${this.pageSize}`);
+                
+                if (response.success) {
+                    this.currentChunks = response.chunks;
+                    this.renderChunks();
+                } else {
+                    throw new Error(response.error || 'Failed to load chunks');
+                }
+            } catch (error) {
+                console.error('Failed to load chunks:', error);
+                Utils.showNotification('Failed to load chunks', 'error');
+            } finally {
+                loadingElement.classList.remove('active');
+            }
+        }
+        
+        renderChunks() {
+            const container = document.getElementById('chunkList');
+            const noChunksElement = document.getElementById('noChunks');
+            
+            // Clear existing chunks (except loading and no-chunks elements)
+            const existingChunks = container.querySelectorAll('.chunk-item');
+            existingChunks.forEach(chunk => chunk.remove());
+            
+            if (this.currentChunks.length === 0) {
+                noChunksElement.style.display = 'block';
+                return;
+            }
+            
+            noChunksElement.style.display = 'none';
+            
+            this.currentChunks.forEach(chunk => {
+                const chunkElement = this.createChunkElement(chunk);
+                container.appendChild(chunkElement);
+            });
+        }
+        
+        createChunkElement(chunk) {
+            const chunkElement = document.createElement('div');
+            chunkElement.className = 'chunk-item';
+            chunkElement.dataset.chunkId = chunk.chunk_id;
+            
+            const contentPreview = Utils.truncateText(chunk.content_preview || chunk.content || '', 200);
+            const complexityScore = chunk.complexity_score ? chunk.complexity_score.toFixed(2) : 'N/A';
+            
+            chunkElement.innerHTML = `
+                <div class="chunk-header">
+                    <label class="chunk-checkbox-label">
+                        <input type="checkbox" class="chunk-checkbox" value="${chunk.chunk_id}">
+                        <span class="chunk-id">${chunk.chunk_id}</span>
+                    </label>
+                    <div class="chunk-meta">
+                        <span class="complexity-score">Score: ${complexityScore}</span>
+                        <span class="chunk-type">${chunk.chunk_type || 'unknown'}</span>
+                    </div>
+                </div>
+                <div class="chunk-info">
+                    <div class="chunk-source">
+                        <strong>Source:</strong> ${chunk.source_document || 'Unknown'}
+                        ${chunk.section_path ? `<span class="section-path">${chunk.section_path}</span>` : ''}
+                    </div>
+                    <div class="chunk-stats">
+                        <span>Lines: ${chunk.line_count || 0}</span>
+                        <span>Tokens: ${chunk.token_count || 0}</span>
+                        <span>Access: ${chunk.access_count || 0}</span>
+                    </div>
+                </div>
+                <div class="chunk-content">
+                    ${contentPreview}
+                </div>
+                <div class="chunk-actions">
+                    <button class="btn btn-sm btn-outline view-details" data-chunk-id="${chunk.chunk_id}">
+                        View Details
+                    </button>
+                    <button class="btn btn-sm btn-success approve-single" data-chunk-id="${chunk.chunk_id}">
+                        Approve
+                    </button>
+                    <button class="btn btn-sm btn-danger reject-single" data-chunk-id="${chunk.chunk_id}">
+                        Reject
+                    </button>
+                </div>
+            `;
+            
+            // Bind individual chunk events
+            this.bindChunkEvents(chunkElement);
+            
+            return chunkElement;
+        }
+        
+        bindChunkEvents(chunkElement) {
+            // Checkbox selection
+            const checkbox = chunkElement.querySelector('.chunk-checkbox');
+            checkbox.addEventListener('change', (e) => {
+                if (e.target.checked) {
+                    this.selectedChunks.add(e.target.value);
+                    chunkElement.classList.add('selected');
+                } else {
+                    this.selectedChunks.delete(e.target.value);
+                    chunkElement.classList.remove('selected');
+                }
+                this.updateSelectionUI();
+            });
+            
+            // View details
+            const viewDetailsBtn = chunkElement.querySelector('.view-details');
+            viewDetailsBtn.addEventListener('click', (e) => {
+                this.viewChunkDetails(e.target.dataset.chunkId);
+            });
+            
+            // Single approve
+            const approveBtn = chunkElement.querySelector('.approve-single');
+            approveBtn.addEventListener('click', (e) => {
+                this.approveSingleChunk(e.target.dataset.chunkId);
+            });
+            
+            // Single reject
+            const rejectBtn = chunkElement.querySelector('.reject-single');
+            rejectBtn.addEventListener('click', (e) => {
+                this.rejectSingleChunk(e.target.dataset.chunkId);
+            });
+        }
+        
+        updateSelectionUI() {
+            const count = this.selectedChunks.size;
+            document.getElementById('selectedCount').textContent = count;
+            
+            const approveBtn = document.getElementById('approveSelected');
+            const rejectBtn = document.getElementById('rejectSelected');
+            
+            if (count > 0) {
+                approveBtn.disabled = false;
+                rejectBtn.disabled = false;
+            } else {
+                approveBtn.disabled = true;
+                rejectBtn.disabled = true;
+            }
+        }
+        
+        selectAllChunks() {
+            const checkboxes = document.querySelectorAll('.chunk-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = true;
+                this.selectedChunks.add(checkbox.value);
+                checkbox.closest('.chunk-item').classList.add('selected');
+            });
+            this.updateSelectionUI();
+        }
+        
+        clearSelection() {
+            const checkboxes = document.querySelectorAll('.chunk-checkbox');
+            checkboxes.forEach(checkbox => {
+                checkbox.checked = false;
+                checkbox.closest('.chunk-item').classList.remove('selected');
+            });
+            this.selectedChunks.clear();
+            this.updateSelectionUI();
+        }
+        
+        async approveSelected() {
+            if (this.selectedChunks.size === 0) return;
+            
+            const chunkIds = Array.from(this.selectedChunks);
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/approve', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: chunkIds,
+                        approved_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification(`Successfully approved ${response.approved_count} chunks`, 'success');
+                    this.clearSelection();
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to approve chunks');
+                }
+            } catch (error) {
+                console.error('Failed to approve chunks:', error);
+                Utils.showNotification('Failed to approve chunks', 'error');
+            }
+        }
+        
+        showRejectionPanel() {
+            if (this.selectedChunks.size === 0) return;
+            
+            document.getElementById('rejectionPanel').style.display = 'block';
+            document.getElementById('rejectionReason').focus();
+        }
+        
+        hideRejectionPanel() {
+            document.getElementById('rejectionPanel').style.display = 'none';
+            document.getElementById('rejectionReason').value = '';
+        }
+        
+        async confirmReject() {
+            const reason = document.getElementById('rejectionReason').value.trim();
+            if (!reason) {
+                Utils.showNotification('Please provide a rejection reason', 'error');
+                return;
+            }
+            
+            const chunkIds = Array.from(this.selectedChunks);
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/reject', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: chunkIds,
+                        rejection_reason: reason,
+                        rejected_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification(`Successfully rejected ${response.rejected_count} chunks`, 'success');
+                    this.hideRejectionPanel();
+                    this.clearSelection();
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to reject chunks');
+                }
+            } catch (error) {
+                console.error('Failed to reject chunks:', error);
+                Utils.showNotification('Failed to reject chunks', 'error');
+            }
+        }
+        
+        async testSearch() {
+            const query = document.getElementById('searchQuery').value.trim();
+            if (!query) {
+                Utils.showNotification('Please enter a search query', 'error');
+                return;
+            }
+            
+            try {
+                const response = await Utils.makeRequest('/api/search/simulate', {
+                    method: 'POST',
+                    body: JSON.stringify({ query, limit: 5 })
+                });
+                
+                if (response.success) {
+                    this.displaySearchResults(response.results);
+                } else {
+                    throw new Error(response.error || 'Search failed');
+                }
+            } catch (error) {
+                console.error('Search failed:', error);
+                Utils.showNotification('Search failed', 'error');
+            }
+        }
+        
+        displaySearchResults(results) {
+            const container = document.getElementById('searchResults');
+            container.innerHTML = '';
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p class="no-results">No matching chunks found</p>';
+                return;
+            }
+            
+            results.forEach(result => {
+                const resultElement = document.createElement('div');
+                resultElement.className = 'search-result';
+                resultElement.innerHTML = `
+                    <div class="result-header">
+                        <strong>${result.chunk_id}</strong>
+                        <span class="relevance-score">${result.relevance_score.toFixed(3)}</span>
+                    </div>
+                    <div class="result-meta">
+                        <span class="result-source">${result.source_document}</span>
+                        <span class="result-status status-${result.approval_status}">${result.approval_status}</span>
+                    </div>
+                    <div class="result-content">${result.content_preview}</div>
+                `;
+                container.appendChild(resultElement);
+            });
+        }
+        
+        async loadRecentActivity() {
+            try {
+                const response = await Utils.makeRequest('/api/search/recent?limit=5');
+                
+                if (response.success) {
+                    this.displayRecentActivity(response.results);
+                } else {
+                    throw new Error(response.error || 'Failed to load recent activity');
+                }
+            } catch (error) {
+                console.error('Failed to load recent activity:', error);
+                document.getElementById('recentActivity').innerHTML = '<p class="error">Failed to load recent activity</p>';
+            }
+        }
+        
+        displayRecentActivity(results) {
+            const container = document.getElementById('recentActivity');
+            container.innerHTML = '';
+            
+            if (results.length === 0) {
+                container.innerHTML = '<p>No recent activity</p>';
+                return;
+            }
+            
+            results.forEach(result => {
+                const activityElement = document.createElement('div');
+                activityElement.className = 'activity-item';
+                activityElement.innerHTML = `
+                    <div class="activity-header">
+                        <strong>${result.chunk_id}</strong>
+                        <span class="activity-time">${Utils.formatDate(result.last_accessed)}</span>
+                    </div>
+                    <div class="activity-content">${Utils.truncateText(result.content_preview, 80)}</div>
+                `;
+                container.appendChild(activityElement);
+            });
+        }
+        
+        async refreshData() {
+            Utils.showNotification('Refreshing data...', 'info');
+            await this.loadInitialData();
+            this.clearSelection();
+            Utils.showNotification('Data refreshed successfully', 'success');
+        }
+        
+        async loadMoreChunks() {
+            this.currentPage++;
+            await this.loadChunks(false);
+        }
+        
+        startPeriodicRefresh() {
+            setInterval(() => {
+                this.loadStats();
+            }, window.APP_CONFIG.refreshInterval);
+        }
+        
+        async viewChunkDetails(chunkId) {
+            try {
+                const response = await Utils.makeRequest(`/api/chunks/${chunkId}/context`);
+                
+                if (response.success) {
+                    this.showChunkModal(response.data);
+                } else {
+                    throw new Error(response.error || 'Failed to load chunk details');
+                }
+            } catch (error) {
+                console.error('Failed to load chunk details:', error);
+                Utils.showNotification('Failed to load chunk details', 'error');
+            }
+        }
+        
+        showChunkModal(data) {
+            const modal = document.getElementById('chunkModal');
+            const modalBody = document.getElementById('modalBody');
+            
+            const chunk = data.chunk;
+            
+            modalBody.innerHTML = `
+                <div class="chunk-details">
+                    <h4>Chunk Information</h4>
+                    <div class="detail-grid">
+                        <div class="detail-item">
+                            <label>ID:</label>
+                            <span>${chunk.chunk_id}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Realm:</label>
+                            <span>${chunk.realm_id}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Type:</label>
+                            <span>${chunk.chunk_type}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Status:</label>
+                            <span class="status-${chunk.approval_status}">${chunk.approval_status}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Source:</label>
+                            <span>${chunk.source_document}</span>
+                        </div>
+                        <div class="detail-item">
+                            <label>Created:</label>
+                            <span>${Utils.formatDate(chunk.created_at)}</span>
+                        </div>
+                    </div>
+                    
+                    <h4>Content</h4>
+                    <div class="chunk-content-full">
+                        <pre>${chunk.content}</pre>
+                    </div>
+                    
+                    ${data.context_chunks && data.context_chunks.length > 0 ? `
+                        <h4>Related Chunks</h4>
+                        <div class="context-chunks">
+                            ${data.context_chunks.map(ctx => `
+                                <div class="context-chunk">
+                                    <strong>${ctx.chunk_id}</strong> - ${ctx.chunk_type}
+                                    <div class="context-preview">${Utils.truncateText(ctx.content, 100)}</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+            
+            modal.style.display = 'block';
+        }
+        
+        closeModal() {
+            document.getElementById('chunkModal').style.display = 'none';
+        }
+        
+        async approveSingleChunk(chunkId) {
+            try {
+                const response = await Utils.makeRequest('/api/chunks/approve', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: [chunkId],
+                        approved_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification('Chunk approved successfully', 'success');
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to approve chunk');
+                }
+            } catch (error) {
+                console.error('Failed to approve chunk:', error);
+                Utils.showNotification('Failed to approve chunk', 'error');
+            }
+        }
+        
+        async rejectSingleChunk(chunkId) {
+            const reason = prompt('Enter rejection reason:');
+            if (!reason) return;
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/reject', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: [chunkId],
+                        rejection_reason: reason,
+                        rejected_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification('Chunk rejected successfully', 'success');
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to reject chunk');
+                }
+            } catch (error) {
+                console.error('Failed to reject chunk:', error);
+                Utils.showNotification('Failed to reject chunk', 'error');
+            }
+        }
+    }
+    
+    // Initialize the application when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+        new ChunkReviewApp();
+    });
+</script>
+{% endblock %}
