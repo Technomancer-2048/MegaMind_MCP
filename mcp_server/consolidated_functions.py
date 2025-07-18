@@ -1262,3 +1262,161 @@ class ConsolidatedMCPFunctions:
                 "error": str(e),
                 "insight_type": insight_type
             }
+    
+    # ========================================
+    # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
+    # ========================================
+    
+    async def get_pending_chunks(self, limit: int = 20, realm_filter: str = None) -> Dict[str, Any]:
+        """
+        Get all pending chunks across the system.
+        
+        Args:
+            limit: Maximum number of chunks to return
+            realm_filter: Optional realm filter (e.g., "PROJECT", "GLOBAL")
+            
+        Returns:
+            Dict with pending chunks list and metadata
+        """
+        try:
+            logger.info(f"Master get_pending_chunks: limit={limit}, realm_filter={realm_filter}")
+            
+            result = self.db.get_pending_chunks_dual_realm(
+                limit=limit,
+                realm_filter=realm_filter
+            )
+            
+            return {
+                "success": result["success"],
+                "chunks": result.get("chunks", []),
+                "count": result.get("count", 0),
+                "realm_filter": realm_filter,
+                "limit": limit,
+                "routed_to": "get_pending_chunks_dual_realm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Master get_pending_chunks error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "chunks": [],
+                "count": 0
+            }
+    
+    async def approve_chunk(self, chunk_id: str, approved_by: str, approval_notes: str = None) -> Dict[str, Any]:
+        """
+        Approve a chunk by updating its approval status.
+        
+        Args:
+            chunk_id: Chunk ID to approve
+            approved_by: User performing the approval
+            approval_notes: Optional approval notes
+            
+        Returns:
+            Dict with approval results and metadata
+        """
+        try:
+            logger.info(f"Master approve_chunk: chunk_id={chunk_id}, approved_by={approved_by}")
+            
+            result = self.db.approve_chunk_dual_realm(
+                chunk_id=chunk_id,
+                approved_by=approved_by,
+                approval_notes=approval_notes
+            )
+            
+            return {
+                "success": result["success"],
+                "chunk_id": chunk_id,
+                "approval_status": result.get("approval_status"),
+                "approved_by": approved_by,
+                "approved_at": result.get("approved_at"),
+                "message": result.get("message"),
+                "routed_to": "approve_chunk_dual_realm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Master approve_chunk error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "chunk_id": chunk_id
+            }
+    
+    async def reject_chunk(self, chunk_id: str, rejected_by: str, rejection_reason: str) -> Dict[str, Any]:
+        """
+        Reject a chunk by updating its approval status.
+        
+        Args:
+            chunk_id: Chunk ID to reject
+            rejected_by: User performing the rejection
+            rejection_reason: Reason for rejection
+            
+        Returns:
+            Dict with rejection results and metadata
+        """
+        try:
+            logger.info(f"Master reject_chunk: chunk_id={chunk_id}, rejected_by={rejected_by}")
+            
+            result = self.db.reject_chunk_dual_realm(
+                chunk_id=chunk_id,
+                rejected_by=rejected_by,
+                rejection_reason=rejection_reason
+            )
+            
+            return {
+                "success": result["success"],
+                "chunk_id": chunk_id,
+                "approval_status": result.get("approval_status"),
+                "rejected_by": rejected_by,
+                "rejection_reason": rejection_reason,
+                "rejected_at": result.get("rejected_at"),
+                "routed_to": "reject_chunk_dual_realm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Master reject_chunk error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "chunk_id": chunk_id
+            }
+    
+    async def bulk_approve_chunks(self, chunk_ids: List[str], approved_by: str) -> Dict[str, Any]:
+        """
+        Approve multiple chunks in bulk.
+        
+        Args:
+            chunk_ids: List of chunk IDs to approve
+            approved_by: User performing the bulk approval
+            
+        Returns:
+            Dict with bulk approval results and metadata
+        """
+        try:
+            logger.info(f"Master bulk_approve_chunks: {len(chunk_ids)} chunks, approved_by={approved_by}")
+            
+            result = self.db.bulk_approve_chunks_dual_realm(
+                chunk_ids=chunk_ids,
+                approved_by=approved_by
+            )
+            
+            return {
+                "success": result["success"],
+                "approved_count": result.get("approved_count", 0),
+                "failed_count": result.get("failed_count", 0),
+                "approved_chunks": result.get("approved_chunks", []),
+                "failed_chunks": result.get("failed_chunks", []),
+                "approved_by": approved_by,
+                "approved_at": result.get("approved_at"),
+                "routed_to": "bulk_approve_chunks_dual_realm"
+            }
+            
+        except Exception as e:
+            logger.error(f"Master bulk_approve_chunks error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "approved_count": 0,
+                "failed_count": len(chunk_ids)
+            }

@@ -195,7 +195,7 @@ class RealmAwareMegaMindDatabase:
         """Keyword search across specified realms with priority weighting"""
         realm_placeholders = ', '.join(['%s'] * len(search_realms))
         
-        # Multi-word search with realm priority
+        # Multi-word search with realm priority (only approved chunks)
         search_query = f"""
         SELECT c.chunk_id, c.content, c.source_document, c.section_path,
                c.chunk_type, c.realm_id, c.access_count, c.last_accessed,
@@ -207,6 +207,7 @@ class RealmAwareMegaMindDatabase:
         FROM megamind_chunks c
         JOIN megamind_realms r ON c.realm_id = r.realm_id
         WHERE c.realm_id IN ({realm_placeholders})
+        AND c.approval_status = 'approved'
           AND (MATCH(c.content) AGAINST(%s IN BOOLEAN MODE) > 0
                OR c.source_document LIKE %s
                OR c.section_path LIKE %s)
@@ -304,7 +305,7 @@ class RealmAwareMegaMindDatabase:
             logger.warning("Semantic search not available, using keyword search only")
             return self._realm_keyword_search(cursor, query, limit, search_realms)
         
-        # Get all chunks from specified realms
+        # Get all chunks from specified realms (only approved chunks)
         realm_placeholders = ', '.join(['%s'] * len(search_realms))
         chunks_query = f"""
         SELECT chunk_id, content, source_document, section_path, 
@@ -312,6 +313,7 @@ class RealmAwareMegaMindDatabase:
                created_at, updated_at, token_count, line_count
         FROM megamind_chunks
         WHERE realm_id IN ({realm_placeholders})
+        AND approval_status = 'approved'
         """
         
         cursor.execute(chunks_query, search_realms)
@@ -2262,14 +2264,22 @@ class RealmAwareMegaMindDatabase:
             # Generate chunk ID
             chunk_id = f"chunk_{uuid.uuid4().hex[:8]}"
             
-            # Insert chunk
+            # Determine approval status based on workflow mode (GitHub Issue #26)
+            direct_commit_mode = os.environ.get('MEGAMIND_DIRECT_COMMIT_MODE', 'false').lower() == 'true'
+            approval_status = 'approved' if direct_commit_mode else 'pending'
+            approved_by = 'system_direct_commit' if direct_commit_mode else None
+            approved_at = datetime.now() if direct_commit_mode else None
+            
+            # Insert chunk with approval status
             insert_query = """
-            INSERT INTO megamind_chunks (chunk_id, content, source_document, section_path, realm_id, created_at, updated_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO megamind_chunks (chunk_id, content, source_document, section_path, realm_id, 
+                                       approval_status, approved_by, approved_at, created_at, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """
             
             now = datetime.now()
-            cursor.execute(insert_query, (chunk_id, content, source_document, section_path, realm_id, now, now))
+            cursor.execute(insert_query, (chunk_id, content, source_document, section_path, realm_id, 
+                                        approval_status, approved_by, approved_at, now, now))
             
             # Generate embedding if embedding service is available
             if self.embedding_service:
@@ -4387,4 +4397,284 @@ class RealmAwareMegaMindDatabase:
                 "error": str(e),
                 "session_id": session_id
             }
+    
+    # ========================================
+    # GitHub Issue #26: Chunk Approval Functions
+    # ========================================
+    
+    def get_pending_chunks_dual_realm(self, limit: int = 20, realm_filter: str = None) -> Dict[str, Any]:
+        """Get all pending chunks across the system"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Build query with optional realm filtering
+            query = """
+            SELECT chunk_id, content, source_document, section_path, realm_id, 
+                   created_at, updated_at, approval_status, approved_at, approved_by
+            FROM megamind_chunks 
+            WHERE approval_status = 'pending'
+            """
+            params = []
+            
+            if realm_filter:
+                query += " AND realm_id = %s"
+                params.append(realm_filter)
+            
+            query += " ORDER BY created_at DESC LIMIT %s"
+            params.append(limit)
+            
+            cursor.execute(query, params)
+            chunks = cursor.fetchall()
+            
+            # Add metadata
+            for chunk in chunks:
+                # Convert datetime objects to strings for JSON serialization
+                if chunk.get('created_at'):
+                    chunk['created_at'] = chunk['created_at'].isoformat()
+                if chunk.get('updated_at'):
+                    chunk['updated_at'] = chunk['updated_at'].isoformat()
+                if chunk.get('approved_at'):
+                    chunk['approved_at'] = chunk['approved_at'].isoformat()
+            
+            logger.info(f"Retrieved {len(chunks)} pending chunks (realm_filter: {realm_filter})")
+            
+            return {
+                "success": True,
+                "chunks": chunks,
+                "count": len(chunks),
+                "realm_filter": realm_filter,
+                "limit": limit
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get pending chunks: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "chunks": [],
+                "count": 0
+            }
+        finally:
+            if connection:
+                connection.close()
+    
+    def approve_chunk_dual_realm(self, chunk_id: str, approved_by: str, approval_notes: str = None) -> Dict[str, Any]:
+        """Approve a chunk by updating its approval status"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Check if chunk exists and is pending
+            check_query = """
+            SELECT chunk_id, approval_status, realm_id, source_document 
+            FROM megamind_chunks 
+            WHERE chunk_id = %s
+            """
+            cursor.execute(check_query, (chunk_id,))
+            chunk = cursor.fetchone()
+            
+            if not chunk:
+                return {
+                    "success": False,
+                    "error": f"Chunk {chunk_id} not found",
+                    "chunk_id": chunk_id
+                }
+            
+            if chunk['approval_status'] == 'approved':
+                return {
+                    "success": True,
+                    "message": f"Chunk {chunk_id} already approved",
+                    "chunk_id": chunk_id,
+                    "status": "already_approved"
+                }
+            
+            # Update approval status
+            now = datetime.now()
+            update_query = """
+            UPDATE megamind_chunks 
+            SET approval_status = 'approved',
+                approved_at = %s,
+                approved_by = %s,
+                rejection_reason = NULL,
+                updated_at = %s
+            WHERE chunk_id = %s
+            """
+            
+            cursor.execute(update_query, (now, approved_by, now, chunk_id))
+            connection.commit()
+            
+            logger.info(f"Chunk {chunk_id} approved by {approved_by}")
+            
+            return {
+                "success": True,
+                "chunk_id": chunk_id,
+                "approval_status": "approved",
+                "approved_by": approved_by,
+                "approved_at": now.isoformat(),
+                "realm_id": chunk['realm_id'],
+                "source_document": chunk['source_document']
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to approve chunk {chunk_id}: {e}")
+            if connection:
+                connection.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "chunk_id": chunk_id
+            }
+        finally:
+            if connection:
+                connection.close()
+    
+    def reject_chunk_dual_realm(self, chunk_id: str, rejected_by: str, rejection_reason: str) -> Dict[str, Any]:
+        """Reject a chunk by updating its approval status"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            # Check if chunk exists
+            check_query = """
+            SELECT chunk_id, approval_status, realm_id, source_document 
+            FROM megamind_chunks 
+            WHERE chunk_id = %s
+            """
+            cursor.execute(check_query, (chunk_id,))
+            chunk = cursor.fetchone()
+            
+            if not chunk:
+                return {
+                    "success": False,
+                    "error": f"Chunk {chunk_id} not found",
+                    "chunk_id": chunk_id
+                }
+            
+            # Update rejection status
+            now = datetime.now()
+            update_query = """
+            UPDATE megamind_chunks 
+            SET approval_status = 'rejected',
+                approved_at = %s,
+                approved_by = %s,
+                rejection_reason = %s,
+                updated_at = %s
+            WHERE chunk_id = %s
+            """
+            
+            cursor.execute(update_query, (now, rejected_by, rejection_reason, now, chunk_id))
+            connection.commit()
+            
+            logger.info(f"Chunk {chunk_id} rejected by {rejected_by}: {rejection_reason}")
+            
+            return {
+                "success": True,
+                "chunk_id": chunk_id,
+                "approval_status": "rejected",
+                "rejected_by": rejected_by,
+                "rejection_reason": rejection_reason,
+                "rejected_at": now.isoformat(),
+                "realm_id": chunk['realm_id'],
+                "source_document": chunk['source_document']
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to reject chunk {chunk_id}: {e}")
+            if connection:
+                connection.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "chunk_id": chunk_id
+            }
+        finally:
+            if connection:
+                connection.close()
+    
+    def bulk_approve_chunks_dual_realm(self, chunk_ids: List[str], approved_by: str) -> Dict[str, Any]:
+        """Approve multiple chunks in bulk"""
+        connection = None
+        try:
+            connection = self.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            
+            if not chunk_ids:
+                return {
+                    "success": False,
+                    "error": "No chunk IDs provided",
+                    "approved_count": 0,
+                    "failed_chunks": []
+                }
+            
+            now = datetime.now()
+            approved_chunks = []
+            failed_chunks = []
+            
+            for chunk_id in chunk_ids:
+                try:
+                    # Check if chunk exists and is pending
+                    check_query = """
+                    SELECT chunk_id, approval_status 
+                    FROM megamind_chunks 
+                    WHERE chunk_id = %s
+                    """
+                    cursor.execute(check_query, (chunk_id,))
+                    chunk = cursor.fetchone()
+                    
+                    if not chunk:
+                        failed_chunks.append({"chunk_id": chunk_id, "reason": "not_found"})
+                        continue
+                    
+                    if chunk['approval_status'] == 'approved':
+                        approved_chunks.append(chunk_id)  # Already approved, count as success
+                        continue
+                    
+                    # Update approval status
+                    update_query = """
+                    UPDATE megamind_chunks 
+                    SET approval_status = 'approved',
+                        approved_at = %s,
+                        approved_by = %s,
+                        rejection_reason = NULL,
+                        updated_at = %s
+                    WHERE chunk_id = %s
+                    """
+                    
+                    cursor.execute(update_query, (now, approved_by, now, chunk_id))
+                    approved_chunks.append(chunk_id)
+                    
+                except Exception as e:
+                    failed_chunks.append({"chunk_id": chunk_id, "reason": str(e)})
+            
+            connection.commit()
+            
+            logger.info(f"Bulk approval: {len(approved_chunks)} approved, {len(failed_chunks)} failed by {approved_by}")
+            
+            return {
+                "success": True,
+                "approved_count": len(approved_chunks),
+                "failed_count": len(failed_chunks),
+                "approved_chunks": approved_chunks,
+                "failed_chunks": failed_chunks,
+                "approved_by": approved_by,
+                "approved_at": now.isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed bulk approval: {e}")
+            if connection:
+                connection.rollback()
+            return {
+                "success": False,
+                "error": str(e),
+                "approved_count": 0,
+                "failed_chunks": []
+            }
+        finally:
+            if connection:
+                connection.close()
 

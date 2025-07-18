@@ -145,10 +145,48 @@ mcp__megamind__search_query("Development Guidelines Container Testing")
 
 ## Implementation Guidelines
 
-### Function Naming Convention
-- **Format**: `mcp__megamind__[TYPE]_[specific_function]`
-- **Prefixes**: `search_`, `content_`, `promotion_`, `session_`, `analytics_`
-- **Database Tables**: `megamind_[table_name]`
+### 📋 Standardized Function Classes
+**Class-based naming convention**: `mcp__megamind__[CLASS]_[PURPOSE]`
+
+#### 🔍 **SEARCH Class** - Information Retrieval Functions
+- `mcp__megamind__search_query` - Master search with intelligent routing (hybrid, semantic, similarity, keyword)
+- `mcp__megamind__search_related` - Find related chunks and contexts with optional hot contexts  
+- `mcp__megamind__search_retrieve` - Retrieve specific chunks by ID with access tracking
+
+#### 📝 **CONTENT Class** - Knowledge Management Functions  
+- `mcp__megamind__content_create` - Create new chunks and relationships with embedding generation
+- `mcp__megamind__content_update` - Modify existing chunks with optional relationship updates
+- `mcp__megamind__content_process` - Master document processing (analyze, chunk, optimize)
+- `mcp__megamind__content_manage` - Content management actions (ingest, discover, optimize, get_related)
+
+#### 🚀 **PROMOTION Class** - Knowledge Promotion Functions
+- `mcp__megamind__promotion_request` - Create and manage promotion requests with auto-analysis
+- `mcp__megamind__promotion_review` - Review promotions (approve/reject) with impact analysis
+- `mcp__megamind__promotion_monitor` - Monitor promotion queue with filtering and summary
+
+#### 🔄 **SESSION Class** - Session Management Functions
+- `mcp__megamind__session_create` - Create sessions with auto-priming (processing, operational, general)
+- `mcp__megamind__session_manage` - Session management (get_state, track_action, prime_context)
+- `mcp__megamind__session_review` - Session review (recap, pending changes, recent sessions)
+- `mcp__megamind__session_commit` - Session commitment and closure with change approval
+
+#### 🏗️ **APPROVAL Class** - Chunk Approval Functions (GitHub Issue #26)
+- `mcp__megamind__approval_get_pending` - Get all pending chunks across the system
+- `mcp__megamind__approval_approve` - Approve chunks by updating approval status
+- `mcp__megamind__approval_reject` - Reject chunks with reason tracking
+- `mcp__megamind__approval_bulk_approve` - Approve multiple chunks in bulk operations
+
+#### 🤖 **AI Class** - AI Enhancement Functions
+- `mcp__megamind__ai_enhance` - AI enhancement workflows (quality, curation, optimization)
+- `mcp__megamind__ai_learn` - AI learning and feedback processing with strategy updates
+- `mcp__megamind__ai_analyze` - AI analysis and reporting (performance, enhancement, comprehensive)
+
+#### 📊 **ANALYTICS Class** - Analytics & Optimization Functions
+- `mcp__megamind__analytics_track` - Analytics tracking with multiple track types
+- `mcp__megamind__analytics_insights` - Analytics insights (hot_contexts, usage_patterns, performance)
+
+**Total Functions**: 23 standardized functions across 7 classes
+**Database Tables**: `megamind_[table_name]` naming convention
 
 ### Realm Operations
 **CRITICAL**: 

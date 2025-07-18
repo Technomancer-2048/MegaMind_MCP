@@ -319,6 +319,58 @@ class ConsolidatedMCPServer(MCPServer):
                 }
             },
             
+            # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
+            {
+                "name": "mcp__megamind__get_pending_chunks",
+                "description": "Get all pending chunks across the system",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 20, "description": "Maximum number of chunks to return"},
+                        "realm_filter": {"type": "string", "description": "Optional realm filter (e.g., 'PROJECT', 'GLOBAL')"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__approve_chunk",
+                "description": "Approve a chunk by updating its approval status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk ID to approve"},
+                        "approved_by": {"type": "string", "description": "User performing the approval"},
+                        "approval_notes": {"type": "string", "description": "Optional approval notes"}
+                    },
+                    "required": ["chunk_id", "approved_by"]
+                }
+            },
+            {
+                "name": "mcp__megamind__reject_chunk",
+                "description": "Reject a chunk by updating its approval status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk ID to reject"},
+                        "rejected_by": {"type": "string", "description": "User performing the rejection"},
+                        "rejection_reason": {"type": "string", "description": "Reason for rejection"}
+                    },
+                    "required": ["chunk_id", "rejected_by", "rejection_reason"]
+                }
+            },
+            {
+                "name": "mcp__megamind__bulk_approve_chunks",
+                "description": "Approve multiple chunks in bulk",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs to approve"},
+                        "approved_by": {"type": "string", "description": "User performing the bulk approval"}
+                    },
+                    "required": ["chunk_ids", "approved_by"]
+                }
+            },
+            
             # 📊 ANALYTICS CLASS - 2 Master Functions
             {
                 "name": "mcp__megamind__analytics_track",
@@ -452,6 +504,15 @@ class ConsolidatedMCPServer(MCPServer):
                 result = await self.consolidated_functions.analytics_track(**tool_args)
             elif tool_name == 'mcp__megamind__analytics_insights':
                 result = await self.consolidated_functions.analytics_insights(**tool_args)
+            # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
+            elif tool_name == 'mcp__megamind__get_pending_chunks':
+                result = await self.consolidated_functions.get_pending_chunks(**tool_args)
+            elif tool_name == 'mcp__megamind__approve_chunk':
+                result = await self.consolidated_functions.approve_chunk(**tool_args)
+            elif tool_name == 'mcp__megamind__reject_chunk':
+                result = await self.consolidated_functions.reject_chunk(**tool_args)
+            elif tool_name == 'mcp__megamind__bulk_approve_chunks':
+                result = await self.consolidated_functions.bulk_approve_chunks(**tool_args)
             else:
                 return {
                     "jsonrpc": "2.0",

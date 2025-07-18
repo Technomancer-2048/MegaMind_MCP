@@ -1490,6 +1490,58 @@ class MCPServer:
                     },
                     "required": ["report_type", "start_date", "end_date", "session_id"]
                 }
+            },
+            
+            # GitHub Issue #26: Chunk Approval Functions
+            {
+                "name": "mcp__megamind__get_pending_chunks",
+                "description": "Get all pending chunks across the system",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "limit": {"type": "integer", "default": 20, "description": "Maximum number of chunks to return"},
+                        "realm_filter": {"type": "string", "description": "Optional realm filter (e.g., 'PROJECT', 'GLOBAL')"}
+                    },
+                    "required": []
+                }
+            },
+            {
+                "name": "mcp__megamind__approve_chunk",
+                "description": "Approve a chunk by updating its approval status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk ID to approve"},
+                        "approved_by": {"type": "string", "description": "User performing the approval"},
+                        "approval_notes": {"type": "string", "description": "Optional approval notes"}
+                    },
+                    "required": ["chunk_id", "approved_by"]
+                }
+            },
+            {
+                "name": "mcp__megamind__reject_chunk",
+                "description": "Reject a chunk by updating its approval status",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_id": {"type": "string", "description": "Chunk ID to reject"},
+                        "rejected_by": {"type": "string", "description": "User performing the rejection"},
+                        "rejection_reason": {"type": "string", "description": "Reason for rejection"}
+                    },
+                    "required": ["chunk_id", "rejected_by", "rejection_reason"]
+                }
+            },
+            {
+                "name": "mcp__megamind__bulk_approve_chunks",
+                "description": "Approve multiple chunks in bulk",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "chunk_ids": {"type": "array", "items": {"type": "string"}, "description": "List of chunk IDs to approve"},
+                        "approved_by": {"type": "string", "description": "User performing the bulk approval"}
+                    },
+                    "required": ["chunk_ids", "approved_by"]
+                }
             }
         ]
     
@@ -2631,6 +2683,121 @@ class MCPServer:
                             ]
                         }
                     }
+                
+                # GitHub Issue #26: Chunk Approval Functions
+                elif tool_name == 'mcp__megamind__get_pending_chunks':
+                    try:
+                        result = self.db_manager.get_pending_chunks_dual_realm(
+                            limit=tool_args.get('limit', 20),
+                            realm_filter=tool_args.get('realm_filter')
+                        )
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                    }
+                                ]
+                            }
+                        }
+                    except Exception as e:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": f"Error getting pending chunks: {str(e)}"
+                            }
+                        }
+                
+                elif tool_name == 'mcp__megamind__approve_chunk':
+                    try:
+                        result = self.db_manager.approve_chunk_dual_realm(
+                            chunk_id=tool_args.get('chunk_id'),
+                            approved_by=tool_args.get('approved_by'),
+                            approval_notes=tool_args.get('approval_notes')
+                        )
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                    }
+                                ]
+                            }
+                        }
+                    except Exception as e:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": f"Error approving chunk: {str(e)}"
+                            }
+                        }
+                
+                elif tool_name == 'mcp__megamind__reject_chunk':
+                    try:
+                        result = self.db_manager.reject_chunk_dual_realm(
+                            chunk_id=tool_args.get('chunk_id'),
+                            rejected_by=tool_args.get('rejected_by'),
+                            rejection_reason=tool_args.get('rejection_reason')
+                        )
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                    }
+                                ]
+                            }
+                        }
+                    except Exception as e:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": f"Error rejecting chunk: {str(e)}"
+                            }
+                        }
+                
+                elif tool_name == 'mcp__megamind__bulk_approve_chunks':
+                    try:
+                        result = self.db_manager.bulk_approve_chunks_dual_realm(
+                            chunk_ids=tool_args.get('chunk_ids', []),
+                            approved_by=tool_args.get('approved_by')
+                        )
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "result": {
+                                "content": [
+                                    {
+                                        "type": "text",
+                                        "text": json.dumps(clean_decimal_objects(result), indent=2, cls=MegaMindJSONEncoder)
+                                    }
+                                ]
+                            }
+                        }
+                    except Exception as e:
+                        return {
+                            "jsonrpc": "2.0",
+                            "id": request_id,
+                            "error": {
+                                "code": -32603,
+                                "message": f"Error bulk approving chunks: {str(e)}"
+                            }
+                        }
                 
                 else:
                     return {
