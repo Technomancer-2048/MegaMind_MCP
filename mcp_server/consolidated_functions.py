@@ -1267,7 +1267,7 @@ class ConsolidatedMCPFunctions:
     # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
     # ========================================
     
-    async def get_pending_chunks(self, limit: int = 20, realm_filter: str = None) -> Dict[str, Any]:
+    async def approval_get_pending(self, limit: int = 20, realm_filter: str = None) -> Dict[str, Any]:
         """
         Get all pending chunks across the system.
         
@@ -1279,7 +1279,7 @@ class ConsolidatedMCPFunctions:
             Dict with pending chunks list and metadata
         """
         try:
-            logger.info(f"Master get_pending_chunks: limit={limit}, realm_filter={realm_filter}")
+            logger.info(f"Master approval_get_pending: limit={limit}, realm_filter={realm_filter}")
             
             result = self.db.get_pending_chunks_dual_realm(
                 limit=limit,
@@ -1296,7 +1296,7 @@ class ConsolidatedMCPFunctions:
             }
             
         except Exception as e:
-            logger.error(f"Master get_pending_chunks error: {str(e)}")
+            logger.error(f"Master approval_get_pending error: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),
@@ -1304,7 +1304,7 @@ class ConsolidatedMCPFunctions:
                 "count": 0
             }
     
-    async def approve_chunk(self, chunk_id: str, approved_by: str, approval_notes: str = None) -> Dict[str, Any]:
+    async def approval_approve(self, chunk_id: str, approved_by: str, approval_notes: str = None) -> Dict[str, Any]:
         """
         Approve a chunk by updating its approval status.
         
@@ -1317,7 +1317,7 @@ class ConsolidatedMCPFunctions:
             Dict with approval results and metadata
         """
         try:
-            logger.info(f"Master approve_chunk: chunk_id={chunk_id}, approved_by={approved_by}")
+            logger.info(f"Master approval_approve: chunk_id={chunk_id}, approved_by={approved_by}")
             
             result = self.db.approve_chunk_dual_realm(
                 chunk_id=chunk_id,
@@ -1336,14 +1336,14 @@ class ConsolidatedMCPFunctions:
             }
             
         except Exception as e:
-            logger.error(f"Master approve_chunk error: {str(e)}")
+            logger.error(f"Master approval_approve error: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),
                 "chunk_id": chunk_id
             }
     
-    async def reject_chunk(self, chunk_id: str, rejected_by: str, rejection_reason: str) -> Dict[str, Any]:
+    async def approval_reject(self, chunk_id: str, rejected_by: str, rejection_reason: str) -> Dict[str, Any]:
         """
         Reject a chunk by updating its approval status.
         
@@ -1356,7 +1356,7 @@ class ConsolidatedMCPFunctions:
             Dict with rejection results and metadata
         """
         try:
-            logger.info(f"Master reject_chunk: chunk_id={chunk_id}, rejected_by={rejected_by}")
+            logger.info(f"Master approval_reject: chunk_id={chunk_id}, rejected_by={rejected_by}")
             
             result = self.db.reject_chunk_dual_realm(
                 chunk_id=chunk_id,
@@ -1375,14 +1375,14 @@ class ConsolidatedMCPFunctions:
             }
             
         except Exception as e:
-            logger.error(f"Master reject_chunk error: {str(e)}")
+            logger.error(f"Master approval_reject error: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),
                 "chunk_id": chunk_id
             }
     
-    async def bulk_approve_chunks(self, chunk_ids: List[str], approved_by: str) -> Dict[str, Any]:
+    async def approval_bulk_approve(self, chunk_ids: List[str], approved_by: str) -> Dict[str, Any]:
         """
         Approve multiple chunks in bulk.
         
@@ -1394,7 +1394,7 @@ class ConsolidatedMCPFunctions:
             Dict with bulk approval results and metadata
         """
         try:
-            logger.info(f"Master bulk_approve_chunks: {len(chunk_ids)} chunks, approved_by={approved_by}")
+            logger.info(f"Master approval_bulk_approve: {len(chunk_ids)} chunks, approved_by={approved_by}")
             
             result = self.db.bulk_approve_chunks_dual_realm(
                 chunk_ids=chunk_ids,
@@ -1413,7 +1413,7 @@ class ConsolidatedMCPFunctions:
             }
             
         except Exception as e:
-            logger.error(f"Master bulk_approve_chunks error: {str(e)}")
+            logger.error(f"Master approval_bulk_approve error: {str(e)}")
             return {
                 "success": False,
                 "error": str(e),

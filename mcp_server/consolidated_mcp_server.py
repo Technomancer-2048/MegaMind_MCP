@@ -321,7 +321,7 @@ class ConsolidatedMCPServer(MCPServer):
             
             # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
             {
-                "name": "mcp__megamind__get_pending_chunks",
+                "name": "mcp__megamind__approval_get_pending",
                 "description": "Get all pending chunks across the system",
                 "inputSchema": {
                     "type": "object",
@@ -333,7 +333,7 @@ class ConsolidatedMCPServer(MCPServer):
                 }
             },
             {
-                "name": "mcp__megamind__approve_chunk",
+                "name": "mcp__megamind__approval_approve",
                 "description": "Approve a chunk by updating its approval status",
                 "inputSchema": {
                     "type": "object",
@@ -346,7 +346,7 @@ class ConsolidatedMCPServer(MCPServer):
                 }
             },
             {
-                "name": "mcp__megamind__reject_chunk",
+                "name": "mcp__megamind__approval_reject",
                 "description": "Reject a chunk by updating its approval status",
                 "inputSchema": {
                     "type": "object",
@@ -359,7 +359,7 @@ class ConsolidatedMCPServer(MCPServer):
                 }
             },
             {
-                "name": "mcp__megamind__bulk_approve_chunks",
+                "name": "mcp__megamind__approval_bulk_approve",
                 "description": "Approve multiple chunks in bulk",
                 "inputSchema": {
                     "type": "object",
@@ -505,14 +505,14 @@ class ConsolidatedMCPServer(MCPServer):
             elif tool_name == 'mcp__megamind__analytics_insights':
                 result = await self.consolidated_functions.analytics_insights(**tool_args)
             # 🏗️ APPROVAL CLASS - 4 Functions (GitHub Issue #26)
-            elif tool_name == 'mcp__megamind__get_pending_chunks':
-                result = await self.consolidated_functions.get_pending_chunks(**tool_args)
-            elif tool_name == 'mcp__megamind__approve_chunk':
-                result = await self.consolidated_functions.approve_chunk(**tool_args)
-            elif tool_name == 'mcp__megamind__reject_chunk':
-                result = await self.consolidated_functions.reject_chunk(**tool_args)
-            elif tool_name == 'mcp__megamind__bulk_approve_chunks':
-                result = await self.consolidated_functions.bulk_approve_chunks(**tool_args)
+            elif tool_name == 'mcp__megamind__approval_get_pending':
+                result = await self.consolidated_functions.approval_get_pending(**tool_args)
+            elif tool_name == 'mcp__megamind__approval_approve':
+                result = await self.consolidated_functions.approval_approve(**tool_args)
+            elif tool_name == 'mcp__megamind__approval_reject':
+                result = await self.consolidated_functions.approval_reject(**tool_args)
+            elif tool_name == 'mcp__megamind__approval_bulk_approve':
+                result = await self.consolidated_functions.approval_bulk_approve(**tool_args)
             else:
                 return {
                     "jsonrpc": "2.0",

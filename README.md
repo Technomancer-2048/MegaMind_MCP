@@ -273,10 +273,10 @@ The MegaMind system has undergone comprehensive function consolidation, evolving
 - `mcp__megamind__session_commit` - **Session commitment** and closure with change approval
 
 ### 🏗️ **APPROVAL Class** (4 Consolidated Functions) - **[GitHub Issue #26](https://github.com/Technomancer-2048/MegaMind_MCP/issues/26)**
-- `mcp__megamind__get_pending_chunks` - **Get pending chunks** across the system with filtering
-- `mcp__megamind__approve_chunk` - **Approve chunks** by updating approval status
-- `mcp__megamind__reject_chunk` - **Reject chunks** with reason tracking
-- `mcp__megamind__bulk_approve_chunks` - **Bulk approve multiple chunks** in batch operations
+- `mcp__megamind__approval_get_pending` - **Get pending chunks** across the system with filtering
+- `mcp__megamind__approval_approve` - **Approve chunks** by updating approval status
+- `mcp__megamind__approval_reject` - **Reject chunks** with reason tracking
+- `mcp__megamind__approval_bulk_approve` - **Bulk approve multiple chunks** in batch operations
 
 ### 📊 **ANALYTICS Class** (2 Consolidated Functions)
 - `mcp__megamind__analytics_track` - **Analytics tracking** with multiple track types
