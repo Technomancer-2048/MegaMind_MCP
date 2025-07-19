@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Chunk Review Dashboard{% endblock %}
+{% block title %}Content Dashboard{% endblock %}
 
 {% block head %}
 <style>
@@ -8,27 +8,34 @@
     .loading.active { display: block; }
     .error { color: #dc3545; }
     .success { color: #28a745; }
+    .clickable-filter { cursor: pointer; transition: background-color 0.2s; }
+    .clickable-filter:hover { background-color: #f8f9fa; }
+    .clickable-filter.active { background-color: #007bff; color: white; }
 </style>
 {% endblock %}
 
 {% block content %}
 <div class="container">
     <div class="dashboard-header">
-        <h2>Chunk Review Dashboard</h2>
+        <h2>Content Dashboard</h2>
         <div class="stats-panel" id="statsPanel">
-            <div class="stat-item">
+            <div class="stat-item clickable-filter" data-filter="pending">
                 <span class="stat-label">Pending:</span>
                 <span class="stat-value" id="pendingCount">-</span>
             </div>
-            <div class="stat-item">
+            <div class="stat-item clickable-filter" data-filter="approved">
                 <span class="stat-label">Approved:</span>
                 <span class="stat-value" id="approvedCount">-</span>
             </div>
-            <div class="stat-item">
+            <div class="stat-item clickable-filter" data-filter="rejected">
                 <span class="stat-label">Rejected:</span>
                 <span class="stat-value" id="rejectedCount">-</span>
             </div>
-            <div class="stat-item">
+            <div class="stat-item clickable-filter" data-filter="global">
+                <span class="stat-label">Global:</span>
+                <span class="stat-value" id="globalCount">-</span>
+            </div>
+            <div class="stat-item" data-filter="all">
                 <span class="stat-label">Total:</span>
                 <span class="stat-value" id="totalCount">-</span>
             </div>
@@ -43,7 +50,7 @@
         <!-- Chunk Display Area -->
         <section class="chunk-display">
             <div class="chunk-header">
-                <h3>Pending Chunks</h3>
+                <h3>Content List</h3>
                 <div class="chunk-controls">
                     <button id="selectAllChunks" class="btn btn-sm btn-outline">Select All</button>
                     <button id="clearSelection" class="btn btn-sm btn-outline">Clear Selection</button>
@@ -133,6 +140,7 @@
             this.currentChunks = [];
             this.currentPage = 1;
             this.pageSize = 20;
+            this.currentFilter = 'pending'; // Default filter
             
             this.initializeApp();
         }
@@ -147,6 +155,11 @@
             // Refresh controls
             document.getElementById('refreshData').addEventListener('click', () => this.refreshData());
             document.getElementById('loadMoreChunks').addEventListener('click', () => this.loadMoreChunks());
+            
+            // Filter controls
+            document.querySelectorAll('.clickable-filter').forEach(filter => {
+                filter.addEventListener('click', (e) => this.applyFilter(e.currentTarget.dataset.filter));
+            });
             
             // Selection controls
             document.getElementById('selectAllChunks').addEventListener('click', () => this.selectAllChunks());
@@ -176,6 +189,9 @@
                 this.loadChunks(),
                 this.loadRecentActivity()
             ]);
+            
+            // Set initial filter to pending
+            this.applyFilter('pending');
         }
         
         async loadStats() {
@@ -192,6 +208,7 @@
             document.getElementById('pendingCount').textContent = Utils.formatNumber(stats.pending);
             document.getElementById('approvedCount').textContent = Utils.formatNumber(stats.approved);
             document.getElementById('rejectedCount').textContent = Utils.formatNumber(stats.rejected);
+            document.getElementById('globalCount').textContent = Utils.formatNumber(stats.global || 0);
             document.getElementById('totalCount').textContent = Utils.formatNumber(stats.total);
         }
         
@@ -205,7 +222,25 @@
             loadingElement.classList.add('active');
             
             try {
-                const response = await Utils.makeRequest(`/api/chunks/pending?limit=${this.pageSize}`);
+                let endpoint;
+                switch(this.currentFilter) {
+                    case 'pending':
+                        endpoint = `/api/chunks/pending?limit=${this.pageSize}`;
+                        break;
+                    case 'approved':
+                        endpoint = `/api/chunks/approved?limit=${this.pageSize}`;
+                        break;
+                    case 'rejected':
+                        endpoint = `/api/chunks/rejected?limit=${this.pageSize}`;
+                        break;
+                    case 'global':
+                        endpoint = `/api/chunks/global?limit=${this.pageSize}`;
+                        break;
+                    default:
+                        endpoint = `/api/chunks/all?limit=${this.pageSize}`;
+                }
+                
+                const response = await Utils.makeRequest(endpoint);
                 
                 if (response.success) {
                     this.currentChunks = response.chunks;
@@ -589,6 +624,30 @@
             setInterval(() => {
                 this.loadStats();
             }, window.APP_CONFIG.refreshInterval);
+        }
+        
+        async applyFilter(filterType) {
+            // Update active filter UI
+            document.querySelectorAll('.clickable-filter').forEach(filter => {
+                filter.classList.remove('active');
+            });
+            document.querySelector(`[data-filter="${filterType}"]`).classList.add('active');
+            
+            // Update current filter and reload chunks
+            this.currentFilter = filterType;
+            this.clearSelection();
+            await this.loadChunks(true);
+            
+            // Update header to reflect current filter
+            const headerElement = document.querySelector('.chunk-display h3');
+            const filterLabels = {
+                'pending': 'Pending Content',
+                'approved': 'Approved Content', 
+                'rejected': 'Rejected Content',
+                'global': 'Global Content',
+                'all': 'All Content'
+            };
+            headerElement.textContent = filterLabels[filterType] || 'Content List';
         }
         
         async viewChunkDetails(chunkId) {

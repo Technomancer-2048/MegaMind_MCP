@@ -99,6 +99,169 @@ class ChunkService:
             logger.error(f"Database error in get_pending_approval: {e}")
             return []
     
+    def get_approved_chunks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get chunks with approval_status = 'approved'"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+            SELECT chunk_id, realm_id, content, complexity_score, 
+                   source_document, section_path, chunk_type, 
+                   line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   approved_at, approved_by, rejection_reason
+            FROM megamind_chunks 
+            WHERE approval_status = 'approved'
+            ORDER BY approved_at DESC, complexity_score ASC 
+            LIMIT %s
+            """
+            
+            cursor.execute(query, (limit,))
+            chunks = cursor.fetchall()
+            
+            # Convert datetime objects to strings for JSON serialization
+            for chunk in chunks:
+                chunk['created_at'] = chunk['created_at'].isoformat() if chunk['created_at'] else None
+                chunk['last_accessed'] = chunk['last_accessed'].isoformat() if chunk['last_accessed'] else None
+                chunk['approved_at'] = chunk['approved_at'].isoformat() if chunk['approved_at'] else None
+                
+                # Truncate content for preview
+                if chunk['content'] and len(chunk['content']) > 500:
+                    chunk['content_preview'] = chunk['content'][:500] + "..."
+                else:
+                    chunk['content_preview'] = chunk['content']
+            
+            cursor.close()
+            conn.close()
+            return chunks
+            
+        except Error as e:
+            logger.error(f"Database error in get_approved_chunks: {e}")
+            return []
+    
+    def get_rejected_chunks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get chunks with approval_status = 'rejected'"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+            SELECT chunk_id, realm_id, content, complexity_score, 
+                   source_document, section_path, chunk_type, 
+                   line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   approved_at, approved_by, rejection_reason
+            FROM megamind_chunks 
+            WHERE approval_status = 'rejected'
+            ORDER BY created_at DESC, complexity_score ASC 
+            LIMIT %s
+            """
+            
+            cursor.execute(query, (limit,))
+            chunks = cursor.fetchall()
+            
+            # Convert datetime objects to strings for JSON serialization
+            for chunk in chunks:
+                chunk['created_at'] = chunk['created_at'].isoformat() if chunk['created_at'] else None
+                chunk['last_accessed'] = chunk['last_accessed'].isoformat() if chunk['last_accessed'] else None
+                chunk['approved_at'] = chunk['approved_at'].isoformat() if chunk['approved_at'] else None
+                
+                # Truncate content for preview
+                if chunk['content'] and len(chunk['content']) > 500:
+                    chunk['content_preview'] = chunk['content'][:500] + "..."
+                else:
+                    chunk['content_preview'] = chunk['content']
+            
+            cursor.close()
+            conn.close()
+            return chunks
+            
+        except Error as e:
+            logger.error(f"Database error in get_rejected_chunks: {e}")
+            return []
+    
+    def get_global_chunks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get chunks in GLOBAL realm"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+            SELECT chunk_id, realm_id, content, complexity_score, 
+                   source_document, section_path, chunk_type, 
+                   line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   approved_at, approved_by, rejection_reason
+            FROM megamind_chunks 
+            WHERE realm_id = 'GLOBAL'
+            ORDER BY created_at DESC, complexity_score ASC 
+            LIMIT %s
+            """
+            
+            cursor.execute(query, (limit,))
+            chunks = cursor.fetchall()
+            
+            # Convert datetime objects to strings for JSON serialization
+            for chunk in chunks:
+                chunk['created_at'] = chunk['created_at'].isoformat() if chunk['created_at'] else None
+                chunk['last_accessed'] = chunk['last_accessed'].isoformat() if chunk['last_accessed'] else None
+                chunk['approved_at'] = chunk['approved_at'].isoformat() if chunk['approved_at'] else None
+                
+                # Truncate content for preview
+                if chunk['content'] and len(chunk['content']) > 500:
+                    chunk['content_preview'] = chunk['content'][:500] + "..."
+                else:
+                    chunk['content_preview'] = chunk['content']
+            
+            cursor.close()
+            conn.close()
+            return chunks
+            
+        except Error as e:
+            logger.error(f"Database error in get_global_chunks: {e}")
+            return []
+    
+    def get_all_chunks(self, limit: int = 50) -> List[Dict[str, Any]]:
+        """Get all chunks regardless of status"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            query = """
+            SELECT chunk_id, realm_id, content, complexity_score, 
+                   source_document, section_path, chunk_type, 
+                   line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   approved_at, approved_by, rejection_reason
+            FROM megamind_chunks 
+            ORDER BY created_at DESC, complexity_score ASC 
+            LIMIT %s
+            """
+            
+            cursor.execute(query, (limit,))
+            chunks = cursor.fetchall()
+            
+            # Convert datetime objects to strings for JSON serialization
+            for chunk in chunks:
+                chunk['created_at'] = chunk['created_at'].isoformat() if chunk['created_at'] else None
+                chunk['last_accessed'] = chunk['last_accessed'].isoformat() if chunk['last_accessed'] else None
+                chunk['approved_at'] = chunk['approved_at'].isoformat() if chunk['approved_at'] else None
+                
+                # Truncate content for preview
+                if chunk['content'] and len(chunk['content']) > 500:
+                    chunk['content_preview'] = chunk['content'][:500] + "..."
+                else:
+                    chunk['content_preview'] = chunk['content']
+            
+            cursor.close()
+            conn.close()
+            return chunks
+            
+        except Error as e:
+            logger.error(f"Database error in get_all_chunks: {e}")
+            return []
+    
     def approve_chunks(self, chunk_ids: List[str], approved_by: str = "frontend_ui") -> Dict[str, Any]:
         """Approve chunks by updating approval_status to 'approved'"""
         try:
@@ -250,8 +413,17 @@ class ChunkService:
             GROUP BY approval_status
             """
             
+            global_query = """
+            SELECT COUNT(*) as count
+            FROM megamind_chunks 
+            WHERE realm_id = 'GLOBAL'
+            """
+            
             cursor.execute(stats_query)
             stats = cursor.fetchall()
+            
+            cursor.execute(global_query)
+            global_result = cursor.fetchone()
             
             cursor.close()
             conn.close()
@@ -263,6 +435,7 @@ class ChunkService:
                 'pending': stats_dict.get('pending', 0),
                 'approved': stats_dict.get('approved', 0),
                 'rejected': stats_dict.get('rejected', 0),
+                'global': global_result['count'] if global_result else 0,
                 'total': sum(stats_dict.values())
             }
             

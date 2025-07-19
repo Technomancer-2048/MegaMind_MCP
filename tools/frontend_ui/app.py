@@ -39,6 +39,54 @@ def get_pending_chunks():
         'count': len(chunks)
     })
 
+@app.route('/api/chunks/approved')
+def get_approved_chunks():
+    """Get approved chunks"""
+    limit = request.args.get('limit', 50, type=int)
+    chunks = chunk_service.get_approved_chunks(limit=limit)
+    
+    return jsonify({
+        'success': True,
+        'chunks': chunks,
+        'count': len(chunks)
+    })
+
+@app.route('/api/chunks/rejected')
+def get_rejected_chunks():
+    """Get rejected chunks"""
+    limit = request.args.get('limit', 50, type=int)
+    chunks = chunk_service.get_rejected_chunks(limit=limit)
+    
+    return jsonify({
+        'success': True,
+        'chunks': chunks,
+        'count': len(chunks)
+    })
+
+@app.route('/api/chunks/global')
+def get_global_chunks():
+    """Get global realm chunks"""
+    limit = request.args.get('limit', 50, type=int)
+    chunks = chunk_service.get_global_chunks(limit=limit)
+    
+    return jsonify({
+        'success': True,
+        'chunks': chunks,
+        'count': len(chunks)
+    })
+
+@app.route('/api/chunks/all')
+def get_all_chunks():
+    """Get all chunks regardless of status"""
+    limit = request.args.get('limit', 50, type=int)
+    chunks = chunk_service.get_all_chunks(limit=limit)
+    
+    return jsonify({
+        'success': True,
+        'chunks': chunks,
+        'count': len(chunks)
+    })
+
 @app.route('/api/chunks/stats')
 def get_chunk_stats():
     """Get approval statistics for dashboard"""
