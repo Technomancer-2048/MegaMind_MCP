@@ -35,7 +35,12 @@ class ChunkService:
     
     def _get_connection(self):
         """Get database connection"""
-        return mysql.connector.connect(**self.db_config)
+        try:
+            return mysql.connector.connect(**self.db_config)
+        except Error as e:
+            logger.error(f"Failed to create database connection: {e}")
+            logger.error(f"Connection config: {dict((k, v if k != 'password' else '***') for k, v in self.db_config.items())}")
+            raise
     
     def test_connection(self) -> bool:
         """Test database connectivity"""

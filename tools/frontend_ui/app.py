@@ -245,7 +245,6 @@ def health_check():
             return jsonify({
                 'status': 'healthy',
                 'database': 'connected',
-                'timestamp': chunk_service._get_connection().cursor().execute("SELECT NOW()"),
                 'stats': stats
             })
         else:

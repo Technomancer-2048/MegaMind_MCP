@@ -210,6 +210,65 @@ services:
           memory: 512M
           cpus: '0.5'
 
+  # Frontend UI Service - Phase 3 Implementation
+  megamind-frontend-ui:
+    build:
+      context: ./tools/frontend_ui
+      dockerfile: Dockerfile
+    container_name: megamind-frontend-ui
+    restart: unless-stopped
+    environment:
+      # Flask Configuration
+      FLASK_APP: app.py
+      FLASK_ENV: ${FRONTEND_ENV:-production}
+      
+      # Database Configuration
+      DB_HOST: megamind-mysql
+      DB_PORT: 3306
+      DB_NAME: ${MEGAMIND_DB_NAME:-megamind_database}
+      DB_USER: ${MEGAMIND_DB_USER:-megamind_user}
+      DB_PASSWORD: ${MEGAMIND_DB_PASSWORD:-test_db_password_456}
+      
+      # Application Configuration
+      ENVIRONMENT: ${FRONTEND_ENV:-production}
+      LOG_LEVEL: ${FRONTEND_LOG_LEVEL:-INFO}
+      
+      # Development vs Production Mode
+      MEGAMIND_DIRECT_COMMIT_MODE: ${MEGAMIND_DIRECT_COMMIT_MODE:-false}
+      
+      # Security Configuration
+      SECRET_KEY: ${FRONTEND_SECRET_KEY:-megamind_frontend_secret_key_change_in_production}
+    
+    volumes:
+      - megamind_frontend_logs:/app/logs
+    
+    depends_on:
+      megamind-mysql:
+        condition: service_healthy
+    
+    ports:
+      - "${FRONTEND_BIND_IP:-127.0.0.1}:${FRONTEND_PORT:-5004}:5004"
+    
+    networks:
+      - megamind-network
+    
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5004/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Resource limits for frontend service
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.1'
+
 volumes:
   megamind_db_data:
     driver: local
@@ -222,6 +281,8 @@ volumes:
   megamind_cache:
     driver: local
   huggingface_cache:
+    driver: local
+  megamind_frontend_logs:
     driver: local
 
 networks:
