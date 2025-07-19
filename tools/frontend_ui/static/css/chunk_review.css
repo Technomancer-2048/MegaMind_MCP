@@ -1609,3 +1609,85 @@ body {
         gap: 5px;
     }
 }
+
+/* Modal Action Buttons */
+.chunk-actions-modal {
+    margin-top: 30px;
+    padding-top: 20px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.chunk-actions-modal h4 {
+    color: #2c3e50;
+    margin-bottom: 15px;
+    font-size: 1.2rem;
+    font-weight: 600;
+}
+
+.modal-action-buttons {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+}
+
+.modal-action-buttons .btn {
+    min-width: 140px;
+    font-weight: 500;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.modal-action-buttons .btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.15);
+}
+
+.modal-action-buttons .btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.modal-action-buttons .toggle-approval {
+    background: linear-gradient(135deg, #48bb78 0%, #38a169 100%);
+    border: none;
+    color: white;
+}
+
+.modal-action-buttons .toggle-approval:hover {
+    background: linear-gradient(135deg, #38a169 0%, #2f855a 100%);
+}
+
+.modal-action-buttons .toggle-realm {
+    background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+    border: none;
+    color: white;
+}
+
+.modal-action-buttons .toggle-realm:hover {
+    background: linear-gradient(135deg, #3182ce 0%, #2c5282 100%);
+}
+
+.modal-action-buttons .delete-chunk {
+    background: linear-gradient(135deg, #f56565 0%, #e53e3e 100%);
+    border: none;
+    color: white;
+}
+
+.modal-action-buttons .delete-chunk:hover {
+    background: linear-gradient(135deg, #e53e3e 0%, #c53030 100%);
+}
+
+/* Responsive modal actions */
+@media (max-width: 768px) {
+    .modal-action-buttons {
+        flex-direction: column;
+        gap: 10px;
+    }
+    
+    .modal-action-buttons .btn {
+        width: 100%;
+        min-width: auto;
+    }
+}

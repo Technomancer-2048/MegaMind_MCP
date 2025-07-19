@@ -658,14 +658,138 @@
                             `).join('')}
                         </div>
                     ` : ''}
+                    
+                    <div class="chunk-actions-modal">
+                        <h4>Chunk Actions</h4>
+                        <div class="modal-action-buttons">
+                            <button class="btn btn-success toggle-approval" data-chunk-id="${chunk.chunk_id}" data-current-status="${chunk.approval_status}">
+                                ${chunk.approval_status === 'approved' ? 'Mark as Pending' : 'Mark as Approved'}
+                            </button>
+                            <button class="btn btn-primary toggle-realm" data-chunk-id="${chunk.chunk_id}" data-current-realm="${chunk.realm_id}">
+                                ${chunk.realm_id === 'GLOBAL' ? 'Demote to Project' : 'Promote to Global'}
+                            </button>
+                            <button class="btn btn-danger delete-chunk" data-chunk-id="${chunk.chunk_id}">
+                                Delete Chunk
+                            </button>
+                        </div>
+                    </div>
                 </div>
             `;
+            
+            // Bind modal action events
+            this.bindModalActions();
             
             modal.style.display = 'block';
         }
         
         closeModal() {
             document.getElementById('chunkModal').style.display = 'none';
+        }
+        
+        bindModalActions() {
+            // Toggle approval status
+            const toggleApprovalBtn = document.querySelector('.toggle-approval');
+            if (toggleApprovalBtn) {
+                toggleApprovalBtn.addEventListener('click', async (e) => {
+                    const chunkId = e.target.dataset.chunkId;
+                    const currentStatus = e.target.dataset.currentStatus;
+                    
+                    try {
+                        const response = await Utils.makeRequest(`/api/chunks/${chunkId}/toggle-approval`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                action_by: 'frontend_user',
+                                reason: `Status toggled from ${currentStatus} via modal`
+                            })
+                        });
+                        
+                        if (response.success) {
+                            Utils.showNotification(response.message, 'success');
+                            this.closeModal();
+                            await this.refreshData();
+                        } else {
+                            throw new Error(response.error || 'Failed to toggle approval status');
+                        }
+                    } catch (error) {
+                        console.error('Failed to toggle approval:', error);
+                        Utils.showNotification('Failed to toggle approval status', 'error');
+                    }
+                });
+            }
+            
+            // Toggle realm (promote/demote)
+            const toggleRealmBtn = document.querySelector('.toggle-realm');
+            if (toggleRealmBtn) {
+                toggleRealmBtn.addEventListener('click', async (e) => {
+                    const chunkId = e.target.dataset.chunkId;
+                    const currentRealm = e.target.dataset.currentRealm;
+                    
+                    const isGlobal = currentRealm === 'GLOBAL';
+                    const actionText = isGlobal ? 'demoting from GLOBAL to project' : 'promoting to GLOBAL';
+                    const promptText = isGlobal ? 
+                        'Enter justification for demoting to project realm:' : 
+                        'Enter justification for promoting to GLOBAL realm:';
+                    
+                    const justification = prompt(promptText);
+                    if (!justification) return;
+                    
+                    try {
+                        const response = await Utils.makeRequest(`/api/chunks/${chunkId}/toggle-realm`, {
+                            method: 'POST',
+                            body: JSON.stringify({
+                                justification: justification,
+                                action_by: 'frontend_user'
+                            })
+                        });
+                        
+                        if (response.success) {
+                            Utils.showNotification(response.message, 'success');
+                            this.closeModal();
+                            await this.refreshData();
+                        } else {
+                            throw new Error(response.error || `Failed ${actionText}`);
+                        }
+                    } catch (error) {
+                        console.error(`Failed ${actionText}:`, error);
+                        Utils.showNotification(`Failed ${actionText}`, 'error');
+                    }
+                });
+            }
+            
+            // Delete chunk
+            const deleteBtn = document.querySelector('.delete-chunk');
+            if (deleteBtn) {
+                deleteBtn.addEventListener('click', async (e) => {
+                    const chunkId = e.target.dataset.chunkId;
+                    
+                    const confirmed = confirm(`Are you sure you want to delete chunk ${chunkId}? This action cannot be undone.`);
+                    if (!confirmed) return;
+                    
+                    const reason = prompt('Enter reason for deletion:');
+                    if (!reason) return;
+                    
+                    try {
+                        const response = await Utils.makeRequest(`/api/chunks/${chunkId}/delete`, {
+                            method: 'DELETE',
+                            body: JSON.stringify({
+                                deleted_by: 'frontend_user',
+                                reason: reason
+                            })
+                        });
+                        
+                        if (response.success) {
+                            Utils.showNotification(response.message, 'success');
+                            this.closeModal();
+                            await this.refreshData();
+                        } else {
+                            throw new Error(response.error || 'Failed to delete chunk');
+                        }
+                    } catch (error) {
+                        console.error('Failed to delete chunk:', error);
+                        Utils.showNotification('Failed to delete chunk', 'error');
+                    }
+                });
+            }
         }
         
         async approveSingleChunk(chunkId) {

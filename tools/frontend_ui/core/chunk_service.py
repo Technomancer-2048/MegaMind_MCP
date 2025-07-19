@@ -4,6 +4,7 @@ import mysql.connector
 from mysql.connector import Error
 import json
 import logging
+import uuid
 
 logger = logging.getLogger(__name__)
 
@@ -272,5 +273,199 @@ class ChunkService:
                 'approved': 0,
                 'rejected': 0,
                 'total': 0,
+                'error': str(e)
+            }
+    
+    def toggle_realm_promotion(self, chunk_id: str, justification: str, action_by: str = "frontend_ui") -> Dict[str, Any]:
+        """Toggle chunk between GLOBAL and original realm"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get current chunk to verify it exists and check realm
+            check_query = "SELECT chunk_id, realm_id, approval_status FROM megamind_chunks WHERE chunk_id = %s"
+            cursor.execute(check_query, (chunk_id,))
+            chunk = cursor.fetchone()
+            
+            if not chunk:
+                return {
+                    'success': False,
+                    'error': 'Chunk not found'
+                }
+            
+            current_realm = chunk['realm_id']
+            
+            # Determine target realm and action
+            if current_realm == 'GLOBAL':
+                # Demote from GLOBAL back to MegaMind_MCP (default project realm)
+                target_realm = 'MegaMind_MCP'
+                action = 'demoted'
+                action_msg = 'demoted from GLOBAL to MegaMind_MCP'
+            else:
+                # Promote to GLOBAL
+                target_realm = 'GLOBAL'
+                action = 'promoted'
+                action_msg = f'promoted from {current_realm} to GLOBAL'
+            
+            # Update chunk realm
+            update_query = """
+            UPDATE megamind_chunks 
+            SET realm_id = %s
+            WHERE chunk_id = %s
+            """
+            cursor.execute(update_query, (target_realm, chunk_id))
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Realm toggle: Chunk {chunk_id} {action_msg} by {action_by}. Justification: {justification}")
+            
+            return {
+                'success': True,
+                'message': f'Chunk {chunk_id} {action_msg}',
+                'action': action,
+                'old_realm': current_realm,
+                'new_realm': target_realm,
+                'action_by': action_by
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in toggle_realm_promotion: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def toggle_approval_status(self, chunk_id: str, action_by: str = "frontend_ui", reason: str = "") -> Dict[str, Any]:
+        """Toggle chunk approval status between approved/pending"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get current approval status
+            check_query = "SELECT chunk_id, approval_status FROM megamind_chunks WHERE chunk_id = %s"
+            cursor.execute(check_query, (chunk_id,))
+            chunk = cursor.fetchone()
+            
+            if not chunk:
+                return {
+                    'success': False,
+                    'error': 'Chunk not found'
+                }
+            
+            current_status = chunk['approval_status']
+            
+            # Determine new status
+            if current_status == 'approved':
+                new_status = 'pending'
+                update_query = """
+                UPDATE megamind_chunks 
+                SET approval_status = 'pending',
+                    approved_at = NULL,
+                    approved_by = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE chunk_id = %s
+                """
+            elif current_status == 'pending':
+                new_status = 'approved'
+                update_query = """
+                UPDATE megamind_chunks 
+                SET approval_status = 'approved',
+                    approved_at = CURRENT_TIMESTAMP,
+                    approved_by = %s,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE chunk_id = %s
+                """
+                cursor.execute(update_query, (action_by, chunk_id))
+            else:  # rejected
+                new_status = 'approved'
+                update_query = """
+                UPDATE megamind_chunks 
+                SET approval_status = 'approved',
+                    approved_at = CURRENT_TIMESTAMP,
+                    approved_by = %s,
+                    rejection_reason = NULL,
+                    rejected_at = NULL,
+                    rejected_by = NULL,
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE chunk_id = %s
+                """
+                cursor.execute(update_query, (action_by, chunk_id))
+            
+            if current_status == 'approved':
+                cursor.execute(update_query, (chunk_id,))
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Toggled approval status for chunk {chunk_id} from {current_status} to {new_status} by {action_by}")
+            
+            return {
+                'success': True,
+                'message': f'Approval status changed from {current_status} to {new_status}',
+                'old_status': current_status,
+                'new_status': new_status,
+                'action_by': action_by
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in toggle_approval_status: {e}")
+            return {
+                'success': False,
+                'error': str(e)
+            }
+    
+    def delete_chunk(self, chunk_id: str, deleted_by: str = "frontend_ui", reason: str = "") -> Dict[str, Any]:
+        """Delete chunk from database (soft delete with audit trail)"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Get chunk info before deletion for audit
+            check_query = "SELECT chunk_id, realm_id, source_document, approval_status FROM megamind_chunks WHERE chunk_id = %s"
+            cursor.execute(check_query, (chunk_id,))
+            chunk = cursor.fetchone()
+            
+            if not chunk:
+                return {
+                    'success': False,
+                    'error': 'Chunk not found'
+                }
+            
+            # Simple logging for deletion action
+            logger.info(f"Deleting chunk {chunk_id} by {deleted_by}. Reason: {reason}. Original data: realm={chunk['realm_id']}, source={chunk['source_document']}, status={chunk['approval_status']}")
+            
+            # Delete related relationships first (foreign key constraints)
+            delete_relationships_query = """
+            DELETE FROM megamind_chunk_relationships 
+            WHERE chunk_id = %s OR related_chunk_id = %s
+            """
+            cursor.execute(delete_relationships_query, (chunk_id, chunk_id))
+            
+            # Delete embeddings
+            delete_embeddings_query = "DELETE FROM megamind_embeddings WHERE chunk_id = %s"
+            cursor.execute(delete_embeddings_query, (chunk_id,))
+            
+            # Delete the chunk itself
+            delete_chunk_query = "DELETE FROM megamind_chunks WHERE chunk_id = %s"
+            cursor.execute(delete_chunk_query, (chunk_id,))
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Deleted chunk {chunk_id} by {deleted_by} - Reason: {reason}")
+            
+            return {
+                'success': True,
+                'message': f'Chunk {chunk_id} deleted successfully',
+                'deleted_chunk': chunk,
+                'deleted_by': deleted_by,
+                'reason': reason
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in delete_chunk: {e}")
+            return {
+                'success': False,
                 'error': str(e)
             }

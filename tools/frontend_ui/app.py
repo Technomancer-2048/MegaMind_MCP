@@ -434,6 +434,61 @@ def export_rejection_data():
             'error': str(e)
         }), 500
 
+# Chunk management endpoints for modal actions
+@app.route('/api/chunks/<chunk_id>/toggle-realm', methods=['POST'])
+def toggle_chunk_realm(chunk_id):
+    """Toggle chunk between GLOBAL and project realm"""
+    try:
+        data = request.get_json()
+        justification = data.get('justification', 'Realm toggled via frontend interface')
+        action_by = data.get('action_by', 'frontend_user')
+        
+        result = chunk_service.toggle_realm_promotion(chunk_id, justification, action_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error toggling realm for chunk {chunk_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/<chunk_id>/toggle-approval', methods=['POST'])
+def toggle_chunk_approval(chunk_id):
+    """Toggle chunk approval status between approved/pending"""
+    try:
+        data = request.get_json()
+        action_by = data.get('action_by', 'frontend_user')
+        reason = data.get('reason', 'Status changed via frontend')
+        
+        result = chunk_service.toggle_approval_status(chunk_id, action_by, reason)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error toggling approval for chunk {chunk_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/<chunk_id>/delete', methods=['DELETE'])
+def delete_chunk(chunk_id):
+    """Delete chunk from database"""
+    try:
+        data = request.get_json() if request.get_json() else {}
+        deleted_by = data.get('deleted_by', 'frontend_user')
+        reason = data.get('reason', 'Deleted via frontend interface')
+        
+        result = chunk_service.delete_chunk(chunk_id, deleted_by, reason)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error deleting chunk {chunk_id}: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
