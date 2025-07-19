@@ -147,6 +147,74 @@ def keyword_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         result['relevance_score'] = score
 ```
 
+### **Enhancement 3: Chunk Modal Action Buttons**
+
+**Functionality Added**:
+- **Toggle Approval Status**: Bidirectional toggle between approved ↔ pending states
+- **Toggle Realm Promotion**: Bidirectional toggle between GLOBAL ↔ project realms  
+- **Delete Chunk**: Complete chunk removal with confirmation and audit trail
+- **Smart Button Text**: Dynamic button labels based on current chunk state
+- **Context-Aware Prompts**: Different justification prompts for each action direction
+
+**Technical Implementation**:
+```javascript
+// Toggle realm promotion with smart text
+<button class="btn btn-primary toggle-realm" data-chunk-id="${chunk.chunk_id}" data-current-realm="${chunk.realm_id}">
+    ${chunk.realm_id === 'GLOBAL' ? 'Demote to Project' : 'Promote to Global'}
+</button>
+
+// Context-aware event handling
+const isGlobal = currentRealm === 'GLOBAL';
+const actionText = isGlobal ? 'demoting from GLOBAL to project' : 'promoting to GLOBAL';
+const promptText = isGlobal ? 
+    'Enter justification for demoting to project realm:' : 
+    'Enter justification for promoting to GLOBAL realm:';
+```
+
+**API Endpoints**:
+```bash
+# Toggle realm promotion (bidirectional)
+POST /api/chunks/<chunk_id>/toggle-realm
+{
+  "justification": "Testing realm toggle",
+  "action_by": "frontend_user"
+}
+
+# Toggle approval status (bidirectional)
+POST /api/chunks/<chunk_id>/toggle-approval
+{
+  "action_by": "frontend_user", 
+  "reason": "Status changed via modal"
+}
+
+# Delete chunk (with confirmation)
+DELETE /api/chunks/<chunk_id>/delete
+{
+  "deleted_by": "frontend_user",
+  "reason": "No longer needed"
+}
+```
+
+**User Experience Features**:
+```css
+.modal-action-buttons {
+    display: flex;
+    gap: 15px;
+    flex-wrap: wrap;
+}
+
+.modal-action-buttons .btn {
+    min-width: 140px;
+    font-weight: 500;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.toggle-realm {
+    background: linear-gradient(135deg, #4299e1 0%, #3182ce 100%);
+}
+```
+
 ## 📁 Files Modified
 
 ### **Backend Files**
@@ -219,6 +287,31 @@ curl -s http://10.255.250.22:5004/ | grep -o "search-type-select\|clickable\|Vie
 # Test chunk details endpoint
 curl -s http://10.255.250.22:5004/api/chunks/chunk_5b01f4f6/context | jq '.success'
 # Result: true ✅
+```
+
+### **Modal Action Buttons Testing**
+```bash
+# Test toggle approval status (approved → pending → approved)
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"action_by": "test_user", "reason": "Testing toggle functionality"}' \
+  http://10.255.250.22:5004/api/chunks/chunk_5b01f4f6/toggle-approval | jq '.message'
+# Result: "Approval status changed from approved to pending" ✅
+
+# Test toggle realm promotion (GLOBAL → MegaMind_MCP → GLOBAL)
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"justification": "Testing realm toggle", "action_by": "test_user"}' \
+  http://10.255.250.22:5004/api/chunks/chunk_5b01f4f6/toggle-realm | jq '.action, .message'
+# Result: "demoted", "Chunk chunk_5b01f4f6 demoted from GLOBAL to MegaMind_MCP" ✅
+
+# Test toggle back to GLOBAL
+curl -s -X POST -H "Content-Type: application/json" \
+  -d '{"justification": "Testing promotion back", "action_by": "test_user"}' \
+  http://10.255.250.22:5004/api/chunks/chunk_5b01f4f6/toggle-realm | jq '.action, .message'
+# Result: "promoted", "Chunk chunk_5b01f4f6 promoted from MegaMind_MCP to GLOBAL" ✅
+
+# Verify modal action buttons in frontend
+curl -s http://10.255.250.22:5004/ | grep -o "toggle-realm\|toggle-approval\|delete-chunk"
+# Results: toggle-realm ✅ toggle-approval ✅ delete-chunk ✅
 ```
 
 ## 📊 Performance Impact
@@ -345,7 +438,9 @@ resultElement.addEventListener('click', (e) => {
 The Chunk Review Interface now provides:
 - **Interactive Chunk Browsing** with clickable entries for detailed viewing
 - **Advanced Search Capabilities** with four distinct algorithms
-- **Improved User Experience** with visual feedback and clear action paths
+- **Complete Chunk Management** with toggle approval, realm promotion, and deletion
+- **Bidirectional Realm Control** allowing promotion to GLOBAL and demotion to project
+- **Smart User Interface** with context-aware buttons and prompts
 - **Enhanced Performance** with optimized search algorithms and responsive interface
 - **Production Deployment** ready for immediate use
 
