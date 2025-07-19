@@ -130,6 +130,51 @@ def simulate_search():
             'error': str(e)
         }), 500
 
+@app.route('/api/search/unified', methods=['POST'])
+def unified_search():
+    """Unified search endpoint supporting multiple search types"""
+    try:
+        data = request.get_json()
+        query = data.get('query', '')
+        search_type = data.get('search_type', 'simulate')
+        limit = data.get('limit', 10)
+        
+        if not query.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Query is required'
+            }), 400
+        
+        # Route to appropriate search method based on type
+        if search_type == 'simulate':
+            results = search_service.simulate_agent_search(query, limit)
+        elif search_type == 'hybrid':
+            results = search_service.hybrid_search(query, limit)
+        elif search_type == 'semantic':
+            results = search_service.semantic_search(query, limit)
+        elif search_type == 'keyword':
+            results = search_service.keyword_search(query, limit)
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'Unsupported search type: {search_type}'
+            }), 400
+        
+        return jsonify({
+            'success': True,
+            'results': results,
+            'count': len(results),
+            'query': query,
+            'search_type': search_type
+        })
+        
+    except Exception as e:
+        logger.error(f"Error in unified search: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 @app.route('/api/search/realm', methods=['POST'])
 def search_by_realm():
     """Search chunks within a specific realm"""

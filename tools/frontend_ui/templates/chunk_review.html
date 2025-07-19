@@ -86,7 +86,15 @@
             <div class="panel-section">
                 <h3>Search Tester</h3>
                 <div class="search-controls">
-                    <input type="text" id="searchQuery" placeholder="Enter search query..." class="form-control">
+                    <div class="search-input-group">
+                        <input type="text" id="searchQuery" placeholder="Enter search query..." class="form-control">
+                        <select id="searchType" class="form-control search-type-select">
+                            <option value="simulate">Agent Simulation</option>
+                            <option value="hybrid">Hybrid Search</option>
+                            <option value="semantic">Semantic Search</option>
+                            <option value="keyword">Keyword Search</option>
+                        </select>
+                    </div>
                     <button id="testSearch" class="btn btn-info">Test Query</button>
                 </div>
                 <div class="search-results" id="searchResults"></div>
@@ -429,19 +437,25 @@
         
         async testSearch() {
             const query = document.getElementById('searchQuery').value.trim();
+            const searchType = document.getElementById('searchType').value;
+            
             if (!query) {
                 Utils.showNotification('Please enter a search query', 'error');
                 return;
             }
             
             try {
-                const response = await Utils.makeRequest('/api/search/simulate', {
+                const response = await Utils.makeRequest('/api/search/unified', {
                     method: 'POST',
-                    body: JSON.stringify({ query, limit: 5 })
+                    body: JSON.stringify({ 
+                        query: query, 
+                        search_type: searchType,
+                        limit: 5 
+                    })
                 });
                 
                 if (response.success) {
-                    this.displaySearchResults(response.results);
+                    this.displaySearchResults(response.results, response.search_type);
                 } else {
                     throw new Error(response.error || 'Search failed');
                 }
@@ -451,7 +465,7 @@
             }
         }
         
-        displaySearchResults(results) {
+        displaySearchResults(results, searchType = 'simulate') {
             const container = document.getElementById('searchResults');
             container.innerHTML = '';
             
@@ -460,9 +474,22 @@
                 return;
             }
             
+            // Add search type indicator
+            const headerElement = document.createElement('div');
+            headerElement.className = 'search-header';
+            headerElement.innerHTML = `
+                <h4>Search Results (${results.length} found)</h4>
+                <div class="search-type-indicator">
+                    <span class="search-type-label">Type:</span>
+                    <span class="search-type-value">${this.getSearchTypeLabel(searchType)}</span>
+                </div>
+            `;
+            container.appendChild(headerElement);
+            
             results.forEach(result => {
                 const resultElement = document.createElement('div');
-                resultElement.className = 'search-result';
+                resultElement.className = 'search-result clickable';
+                resultElement.dataset.chunkId = result.chunk_id;
                 resultElement.innerHTML = `
                     <div class="result-header">
                         <strong>${result.chunk_id}</strong>
@@ -473,9 +500,39 @@
                         <span class="result-status status-${result.approval_status}">${result.approval_status}</span>
                     </div>
                     <div class="result-content">${result.content_preview}</div>
+                    <div class="result-actions">
+                        <button class="btn btn-sm btn-outline view-chunk-details" data-chunk-id="${result.chunk_id}">
+                            View Details
+                        </button>
+                    </div>
                 `;
+                
+                // Add click handler for the entire result
+                resultElement.addEventListener('click', (e) => {
+                    if (!e.target.classList.contains('btn')) {
+                        this.viewChunkDetails(result.chunk_id);
+                    }
+                });
+                
+                // Add click handler for the view details button
+                const viewBtn = resultElement.querySelector('.view-chunk-details');
+                viewBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    this.viewChunkDetails(result.chunk_id);
+                });
+                
                 container.appendChild(resultElement);
             });
+        }
+        
+        getSearchTypeLabel(searchType) {
+            const labels = {
+                'simulate': 'Agent Simulation',
+                'hybrid': 'Hybrid Search',
+                'semantic': 'Semantic Search', 
+                'keyword': 'Keyword Search'
+            };
+            return labels[searchType] || searchType;
         }
         
         async loadRecentActivity() {

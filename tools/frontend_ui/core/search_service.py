@@ -255,3 +255,183 @@ class SearchService:
         except Error as e:
             logger.error(f"Recent searches error: {e}")
             return []
+    
+    def hybrid_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Hybrid search combining FULLTEXT and keyword matching
+        """
+        try:
+            conn = self.chunk_service._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Hybrid approach: FULLTEXT + keyword matching with boosted scores
+            search_query = """
+            SELECT chunk_id, realm_id, content, complexity_score,
+                   source_document, section_path, chunk_type, line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   (MATCH(content, section_path) AGAINST(%s IN NATURAL LANGUAGE MODE) * 2.0 +
+                    CASE WHEN content LIKE %s THEN 1.0 ELSE 0.0 END +
+                    CASE WHEN source_document LIKE %s THEN 0.5 ELSE 0.0 END) as relevance_score,
+                   SUBSTRING(content, 1, 300) as content_preview
+            FROM megamind_chunks 
+            WHERE (MATCH(content, section_path) AGAINST(%s IN NATURAL LANGUAGE MODE)
+                   OR content LIKE %s 
+                   OR source_document LIKE %s)
+            AND approval_status IN ('approved', 'pending')
+            ORDER BY relevance_score DESC, access_count DESC, created_at DESC
+            LIMIT %s
+            """
+            
+            like_pattern = f"%{query}%"
+            cursor.execute(search_query, [query, like_pattern, like_pattern, query, like_pattern, like_pattern, limit])
+            results = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return self._process_search_results(results, query)
+            
+        except Error as e:
+            logger.error(f"Error in hybrid search: {e}")
+            return []
+    
+    def semantic_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Semantic search using natural language matching
+        """
+        try:
+            conn = self.chunk_service._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Focus on semantic understanding using natural language mode
+            search_query = """
+            SELECT chunk_id, realm_id, content, complexity_score,
+                   source_document, section_path, chunk_type, line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   MATCH(content, section_path) AGAINST(%s IN NATURAL LANGUAGE MODE) as relevance_score,
+                   SUBSTRING(content, 1, 300) as content_preview
+            FROM megamind_chunks 
+            WHERE MATCH(content, section_path) AGAINST(%s IN NATURAL LANGUAGE MODE)
+            AND approval_status IN ('approved', 'pending')
+            ORDER BY relevance_score DESC, complexity_score DESC, access_count DESC
+            LIMIT %s
+            """
+            
+            cursor.execute(search_query, [query, query, limit])
+            results = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            return self._process_search_results(results, query)
+            
+        except Error as e:
+            logger.error(f"Error in semantic search: {e}")
+            return []
+    
+    def keyword_search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """
+        Simple keyword-based search using LIKE patterns
+        """
+        try:
+            conn = self.chunk_service._get_connection()
+            cursor = conn.cursor(dictionary=True)
+            
+            # Split query into keywords for better matching
+            keywords = [k.strip() for k in query.split() if len(k.strip()) > 2]
+            
+            if not keywords:
+                return []
+            
+            # Build dynamic WHERE clause for multiple keywords
+            where_conditions = []
+            params = []
+            
+            for keyword in keywords:
+                like_pattern = f"%{keyword}%"
+                where_conditions.append("(content LIKE %s OR source_document LIKE %s OR section_path LIKE %s)")
+                params.extend([like_pattern, like_pattern, like_pattern])
+            
+            search_query = f"""
+            SELECT chunk_id, realm_id, content, complexity_score,
+                   source_document, section_path, chunk_type, line_count, token_count, access_count,
+                   approval_status, created_at, last_accessed,
+                   (1.0) as relevance_score,
+                   SUBSTRING(content, 1, 300) as content_preview
+            FROM megamind_chunks 
+            WHERE ({' OR '.join(where_conditions)})
+            AND approval_status IN ('approved', 'pending')
+            ORDER BY access_count DESC, created_at DESC
+            LIMIT %s
+            """
+            
+            params.append(limit)
+            cursor.execute(search_query, params)
+            results = cursor.fetchall()
+            
+            cursor.close()
+            conn.close()
+            
+            # Add keyword-based relevance scoring
+            for result in results:
+                score = 0.0
+                content_lower = result['content'].lower()
+                for keyword in keywords:
+                    if keyword.lower() in content_lower:
+                        score += 1.0
+                result['relevance_score'] = score
+            
+            # Re-sort by relevance score
+            results.sort(key=lambda x: x['relevance_score'], reverse=True)
+            
+            return self._process_search_results(results, query)
+            
+        except Error as e:
+            logger.error(f"Error in keyword search: {e}")
+            return []
+    
+    def _process_search_results(self, results: List[Dict], query: str) -> List[Dict[str, Any]]:
+        """
+        Process and enhance search results with highlighting and formatting
+        """
+        processed_results = []
+        
+        for result in results:
+            # Add highlighting to content preview
+            if result.get('content_preview'):
+                highlighted_content = self._highlight_query_terms(result['content_preview'], query)
+                result['content_preview'] = highlighted_content
+            
+            # Ensure all required fields are present
+            result.setdefault('line_count', 0)
+            result.setdefault('token_count', 0)
+            result.setdefault('access_count', 0)
+            result.setdefault('chunk_type', 'unknown')
+            result.setdefault('section_path', '')
+            
+            processed_results.append(result)
+        
+        return processed_results
+    
+    def _highlight_query_terms(self, content: str, query: str) -> str:
+        """
+        Add HTML highlighting to query terms in content
+        """
+        if not content or not query:
+            return content
+        
+        import re
+        
+        # Split query into individual terms
+        terms = [term.strip() for term in query.split() if len(term.strip()) > 2]
+        
+        highlighted_content = content
+        for term in terms:
+            # Case-insensitive highlighting
+            pattern = re.compile(re.escape(term), re.IGNORECASE)
+            highlighted_content = pattern.sub(
+                f'<mark class="search-highlight">{term}</mark>', 
+                highlighted_content
+            )
+        
+        return highlighted_content
