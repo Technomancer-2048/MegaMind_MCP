@@ -42,12 +42,12 @@ class ConsolidatedMCPServer(MCPServer):
             self.session_manager
         )
         
-        logger.info("Consolidated MCP Server initialized with 19 master functions")
+        logger.info("Consolidated MCP Server initialized with 24 master functions")
     
     def get_tools_list(self) -> List[Dict[str, Any]]:
-        """Get the consolidated list of 19 MCP tools."""
+        """Get the consolidated list of 24 MCP tools."""
         return [
-            # 🔍 SEARCH CLASS - 3 Master Functions
+            # 🔍 SEARCH CLASS - 4 Master Functions
             {
                 "name": "mcp__megamind__search_query",
                 "description": "Master search function with intelligent routing (hybrid, semantic, similarity, keyword)",
@@ -89,6 +89,26 @@ class ConsolidatedMCPServer(MCPServer):
                         "query_context": {"type": "string", "description": "Context for access tracking"}
                     },
                     "required": ["chunk_id"]
+                }
+            },
+            {
+                "name": "mcp__megamind__search_environment_primer",
+                "description": "Retrieve global environment primer elements with universal rules and guidelines",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "include_categories": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Filter by categories (development, security, process, quality, naming, dependencies, architecture)"
+                        },
+                        "limit": {"type": "integer", "default": 100, "description": "Maximum elements to return"},
+                        "priority_threshold": {"type": "number", "default": 0.0, "description": "Minimum priority score (0.0-1.0)"},
+                        "format": {"type": "string", "default": "structured", "enum": ["structured", "markdown", "condensed"], "description": "Response format"},
+                        "enforcement_level": {"type": "string", "enum": ["required", "recommended", "optional"], "description": "Filter by enforcement level"},
+                        "session_id": {"type": "string", "description": "Session ID for tracking"}
+                    },
+                    "required": []
                 }
             },
             
@@ -472,6 +492,8 @@ class ConsolidatedMCPServer(MCPServer):
                 result = await self.consolidated_functions.search_related(**tool_args)
             elif tool_name == 'mcp__megamind__search_retrieve':
                 result = await self.consolidated_functions.search_retrieve(**tool_args)
+            elif tool_name == 'mcp__megamind__search_environment_primer':
+                result = await self.consolidated_functions.search_environment_primer(**tool_args)
             elif tool_name == 'mcp__megamind__content_create':
                 result = await self.consolidated_functions.content_create(**tool_args)
             elif tool_name == 'mcp__megamind__content_update':

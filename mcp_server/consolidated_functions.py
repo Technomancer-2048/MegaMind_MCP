@@ -34,7 +34,7 @@ class ConsolidatedMCPFunctions:
         self.session_manager = session_manager
         
     # ========================================
-    # 🔍 SEARCH CLASS - 3 Master Functions
+    # 🔍 SEARCH CLASS - 4 Master Functions
     # ========================================
     
     async def search_query(self, query: str, search_type: str = "hybrid", 
@@ -224,6 +224,120 @@ class ConsolidatedMCPFunctions:
                 "success": False,
                 "error": str(e),
                 "chunk_id": chunk_id
+            }
+    
+    async def search_environment_primer(self, 
+                                      include_categories: Optional[List[str]] = None,
+                                      limit: int = 100,
+                                      priority_threshold: float = 0.0,
+                                      format: str = "structured",
+                                      enforcement_level: Optional[str] = None,
+                                      session_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Retrieve global environment primer elements with universal rules and guidelines.
+        
+        Retrieves all GLOBAL realm elements that provide universal development rules
+        and knowledge applicable across all projects, independent of project realm.
+        
+        Args:
+            include_categories: Filter by categories (development, security, process, quality, naming, dependencies, architecture)
+            limit: Maximum number of elements to return (default: 100)
+            priority_threshold: Minimum priority score (0.0-1.0, default: 0.0)
+            format: Response format ("structured", "markdown", "condensed")
+            enforcement_level: Filter by enforcement level ("required", "recommended", "optional")
+            session_id: Session ID for tracking (optional)
+            
+        Returns:
+            Dict with global elements, metadata, and formatting
+        """
+        try:
+            logger.info(f"Master search_environment_primer: categories={include_categories}, format={format}")
+            
+            # Build query for GLOBAL realm elements only
+            query_conditions = ["c.realm_id = %s"]
+            params = ["GLOBAL"]
+            
+            # Filter by categories if specified
+            if include_categories:
+                placeholders = ",".join(["%s"] * len(include_categories))
+                query_conditions.append(f"c.element_category IN ({placeholders})")
+                params.extend(include_categories)
+            
+            # Filter by priority threshold
+            if priority_threshold > 0.0:
+                query_conditions.append("c.priority_score >= %s")
+                params.append(priority_threshold)
+                
+            # Filter by enforcement level
+            if enforcement_level:
+                query_conditions.append("c.enforcement_level = %s")
+                params.append(enforcement_level)
+            
+            # Construct the query
+            base_query = f"""
+                SELECT 
+                    c.chunk_id,
+                    c.content,
+                    c.source_document,
+                    c.section_path,
+                    c.chunk_type,
+                    c.created_at,
+                    c.updated_at,
+                    c.element_category,
+                    c.priority_score,
+                    c.enforcement_level,
+                    c.applies_to,
+                    c.tags,
+                    c.realm_id
+                FROM megamind_chunks c
+                WHERE {" AND ".join(query_conditions)}
+                ORDER BY c.priority_score DESC, c.created_at DESC
+                LIMIT %s
+            """
+            
+            params.append(limit)
+            
+            # Execute the query
+            connection = self.db.get_connection()
+            cursor = connection.cursor(dictionary=True)
+            cursor.execute(base_query, params)
+            elements = cursor.fetchall()
+            cursor.close()
+            connection.close()
+            
+            # Format response based on requested format
+            if format == "markdown":
+                formatted_elements = self._format_primer_as_markdown(elements)
+            elif format == "condensed":
+                formatted_elements = self._format_primer_condensed(elements)
+            else:  # structured
+                formatted_elements = self._format_primer_structured(elements)
+            
+            # Track analytics if session provided
+            if session_id:
+                self._track_primer_access(session_id, len(elements), include_categories)
+            
+            return {
+                "success": True,
+                "global_elements": formatted_elements,
+                "total_count": len(elements),
+                "categories_included": include_categories or "all",
+                "priority_threshold": priority_threshold,
+                "enforcement_level": enforcement_level,
+                "format": format,
+                "retrieved_at": datetime.now().isoformat(),
+                "routed_to": "search_environment_primer_direct_query"
+            }
+            
+        except Exception as e:
+            logger.error(f"Master search_environment_primer error: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "global_elements": [],
+                "total_count": 0,
+                "categories_included": include_categories,
+                "format": format
             }
     
     # ========================================
@@ -1420,3 +1534,131 @@ class ConsolidatedMCPFunctions:
                 "approved_count": 0,
                 "failed_count": len(chunk_ids)
             }
+    
+    # ========================================
+    # 🔧 HELPER FUNCTIONS - Environment Primer
+    # ========================================
+    
+    def _format_primer_structured(self, elements: List[Dict]) -> List[Dict]:
+        """Format environment primer elements in structured JSON format."""
+        import json
+        
+        formatted = []
+        for element in elements:
+            formatted.append({
+                "element_id": element["chunk_id"],
+                "category": element.get("element_category", "general"),
+                "title": self._extract_title_from_content(element["content"]),
+                "content": element["content"],
+                "priority_score": float(element.get("priority_score", 0.5)) if element.get("priority_score") else 0.5,
+                "enforcement_level": element.get("enforcement_level", "recommended"),
+                "applies_to": json.loads(element.get("applies_to", "[]")) if element.get("applies_to") else [],
+                "source_document": element["source_document"],
+                "section_path": element.get("section_path", ""),
+                "tags": json.loads(element.get("tags", "[]")) if element.get("tags") else [],
+                "last_updated": element["updated_at"].isoformat() if element.get("updated_at") else None,
+                "realm_id": element.get("realm_id", "GLOBAL")
+            })
+        return formatted
+
+    def _format_primer_as_markdown(self, elements: List[Dict]) -> str:
+        """Format environment primer elements as structured markdown document."""
+        import json
+        
+        markdown = "# Environment Primer - Global Development Guidelines\n\n"
+        markdown += f"*Generated on {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n\n"
+        
+        # Group by category
+        categories = {}
+        for element in elements:
+            category = element.get("element_category", "general")
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(element)
+        
+        # Generate markdown by category
+        for category, category_elements in categories.items():
+            markdown += f"## {category.title()} Guidelines\n\n"
+            
+            for element in sorted(category_elements, key=lambda x: float(x.get("priority_score", 0.5)) if x.get("priority_score") else 0.5, reverse=True):
+                title = self._extract_title_from_content(element["content"])
+                enforcement = element.get("enforcement_level", "recommended").upper()
+                priority = float(element.get("priority_score", 0.5)) if element.get("priority_score") else 0.5
+                
+                markdown += f"### {title} [{enforcement}] (Priority: {priority:.1f})\n\n"
+                markdown += f"{element['content']}\n\n"
+                
+                if element.get("applies_to"):
+                    applies_to_raw = element["applies_to"]
+                    try:
+                        if isinstance(applies_to_raw, str):
+                            applies_to = json.loads(applies_to_raw)
+                        else:
+                            applies_to = applies_to_raw if applies_to_raw else []
+                        if applies_to:
+                            markdown += f"**Applies to**: {', '.join(applies_to)}\n\n"
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
+                markdown += "---\n\n"
+        
+        return markdown
+    
+    def _format_primer_condensed(self, elements: List[Dict]) -> List[Dict]:
+        """Format environment primer elements in condensed format for quick reference."""
+        condensed = []
+        for element in elements:
+            condensed.append({
+                "id": element["chunk_id"],
+                "category": element.get("element_category", "general"),
+                "title": self._extract_title_from_content(element["content"])[:100] + "..." if len(self._extract_title_from_content(element["content"])) > 100 else self._extract_title_from_content(element["content"]),
+                "priority": float(element.get("priority_score", 0.5)) if element.get("priority_score") else 0.5,
+                "enforcement": element.get("enforcement_level", "recommended"),
+                "source": element.get("source_document", "unknown")
+            })
+        return condensed
+    
+    def _extract_title_from_content(self, content: str) -> str:
+        """Extract a title from content (first line or first sentence)."""
+        if not content:
+            return "Untitled"
+        
+        lines = content.strip().split('\n')
+        first_line = lines[0].strip()
+        
+        # If first line looks like a title (starts with #, short, etc.)
+        if first_line.startswith('#'):
+            return first_line.replace('#', '').strip()
+        elif len(first_line) < 100 and (first_line.endswith(':') or first_line.endswith('.')):
+            return first_line.rstrip(':.')
+        elif len(first_line) < 100:
+            return first_line
+        else:
+            # Take first sentence
+            sentences = content.split('.')
+            if sentences and len(sentences[0]) < 100:
+                return sentences[0].strip()
+            else:
+                return content[:97] + "..."
+    
+    def _track_primer_access(self, session_id: str, element_count: int, categories: Optional[List[str]]):
+        """Track environment primer access for analytics."""
+        try:
+            # Create analytics entry for primer access
+            analytics_data = {
+                "access_type": "environment_primer",
+                "session_id": session_id,
+                "element_count": element_count,
+                "categories": categories or [],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Track via database if available
+            if hasattr(self.db, 'track_access_dual_realm'):
+                self.db.track_access_dual_realm(
+                    chunk_id=f"primer_access_{session_id}",
+                    query_context=f"environment_primer_{element_count}_elements"
+                )
+                
+        except Exception as e:
+            logger.warning(f"Failed to track primer access: {str(e)}")
