@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from core.chunk_service import ChunkService
 from core.search_service import SearchService
+from core.rejection_tracking import RejectionTracker
 import os
 import logging
 
@@ -19,6 +20,7 @@ chunk_service = ChunkService(
     password=os.getenv('DB_PASSWORD', '')
 )
 search_service = SearchService(chunk_service)
+rejection_tracker = RejectionTracker(chunk_service)
 
 @app.route('/')
 def dashboard():
@@ -277,6 +279,116 @@ def get_config():
             'ENVIRONMENT': os.getenv('ENVIRONMENT', 'development')
         }
     })
+
+# Rejection tracking endpoints
+@app.route('/api/rejection/templates')
+def get_rejection_templates():
+    """Get rejection reason templates"""
+    try:
+        templates = rejection_tracker.get_rejection_templates()
+        return jsonify({
+            'success': True,
+            'templates': templates
+        })
+    except Exception as e:
+        logger.error(f"Error getting rejection templates: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rejection/patterns')
+def get_rejection_patterns():
+    """Get rejection pattern analysis"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        patterns = rejection_tracker.analyze_rejection_patterns(days)
+        
+        return jsonify({
+            'success': True,
+            'patterns': patterns
+        })
+    except Exception as e:
+        logger.error(f"Error getting rejection patterns: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rejection/statistics')
+def get_rejection_statistics():
+    """Get comprehensive rejection statistics"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        statistics = rejection_tracker.get_rejection_statistics(days)
+        
+        return jsonify({
+            'success': True,
+            'statistics': statistics
+        })
+    except Exception as e:
+        logger.error(f"Error getting rejection statistics: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rejection/track', methods=['POST'])
+def track_rejection_resolution():
+    """Track how a rejection was resolved"""
+    try:
+        data = request.get_json()
+        chunk_id = data.get('chunk_id')
+        resolution_action = data.get('resolution_action')
+        resolution_notes = data.get('resolution_notes', '')
+        
+        if not chunk_id or not resolution_action:
+            return jsonify({
+                'success': False,
+                'error': 'chunk_id and resolution_action are required'
+            }), 400
+        
+        result = rejection_tracker.track_rejection_resolution(
+            chunk_id, resolution_action, resolution_notes
+        )
+        
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error tracking rejection resolution: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/rejection/export')
+def export_rejection_data():
+    """Export rejection data for analysis"""
+    try:
+        days = request.args.get('days', 30, type=int)
+        format_type = request.args.get('format', 'json')
+        
+        result = rejection_tracker.export_rejection_data(days, format_type)
+        
+        if result['success']:
+            if format_type == 'csv':
+                from flask import Response
+                return Response(
+                    result['data'],
+                    mimetype='text/csv',
+                    headers={'Content-Disposition': f'attachment; filename=rejection_data_{days}d.csv'}
+                )
+            else:
+                return jsonify(result)
+        else:
+            return jsonify(result), 500
+            
+    except Exception as e:
+        logger.error(f"Error exporting rejection data: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 # Error handlers
 @app.errorhandler(404)
