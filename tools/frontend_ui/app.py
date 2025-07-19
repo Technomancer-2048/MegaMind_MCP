@@ -537,6 +537,92 @@ def delete_chunk(chunk_id):
             'error': str(e)
         }), 500
 
+@app.route('/api/chunks/set-pending', methods=['POST'])
+def set_chunks_pending():
+    """Set chunks to pending status"""
+    try:
+        data = request.get_json()
+        chunk_ids = data.get('chunk_ids', [])
+        action_by = data.get('action_by', 'frontend_user')
+        
+        if not chunk_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No chunk IDs provided'
+            }), 400
+        
+        result = chunk_service.set_chunks_pending(chunk_ids, action_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error setting chunks to pending: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/bulk-promote', methods=['POST'])
+def bulk_promote_chunks():
+    """Bulk promote chunks to Global realm"""
+    try:
+        data = request.get_json()
+        chunk_ids = data.get('chunk_ids', [])
+        justification = data.get('justification', 'Bulk promotion via frontend')
+        action_by = data.get('action_by', 'frontend_user')
+        
+        if not chunk_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No chunk IDs provided'
+            }), 400
+        
+        if not justification.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Promotion justification is required'
+            }), 400
+        
+        result = chunk_service.bulk_promote_chunks(chunk_ids, justification, action_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error promoting chunks: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/chunks/bulk-demote', methods=['POST'])
+def bulk_demote_chunks():
+    """Bulk demote chunks to Project realm"""
+    try:
+        data = request.get_json()
+        chunk_ids = data.get('chunk_ids', [])
+        justification = data.get('justification', 'Bulk demotion via frontend')
+        action_by = data.get('action_by', 'frontend_user')
+        
+        if not chunk_ids:
+            return jsonify({
+                'success': False,
+                'error': 'No chunk IDs provided'
+            }), 400
+        
+        if not justification.strip():
+            return jsonify({
+                'success': False,
+                'error': 'Demotion justification is required'
+            }), 400
+        
+        result = chunk_service.bulk_demote_chunks(chunk_ids, justification, action_by)
+        return jsonify(result)
+        
+    except Exception as e:
+        logger.error(f"Error demoting chunks: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):

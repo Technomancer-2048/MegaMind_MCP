@@ -79,8 +79,17 @@
                     <button id="approveSelected" class="btn btn-success" disabled>
                         Approve Selected (<span id="selectedCount">0</span>)
                     </button>
+                    <button id="pendingSelected" class="btn btn-warning" disabled>
+                        Set to Pending
+                    </button>
                     <button id="rejectSelected" class="btn btn-danger" disabled>
                         Reject Selected
+                    </button>
+                    <button id="promoteSelected" class="btn btn-primary" disabled>
+                        Promote to Global
+                    </button>
+                    <button id="demoteSelected" class="btn btn-secondary" disabled>
+                        Demote to Project
                     </button>
                 </div>
             </div>
@@ -91,6 +100,24 @@
                 <div class="rejection-actions">
                     <button id="confirmReject" class="btn btn-danger">Confirm Rejection</button>
                     <button id="cancelReject" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+
+            <div class="panel-section promotion-panel" id="promotionPanel" style="display: none;">
+                <h4>Promotion Justification</h4>
+                <textarea id="promotionJustification" placeholder="Enter justification for promoting to Global realm..." rows="3"></textarea>
+                <div class="promotion-actions">
+                    <button id="confirmPromote" class="btn btn-primary">Confirm Promotion</button>
+                    <button id="cancelPromote" class="btn btn-secondary">Cancel</button>
+                </div>
+            </div>
+
+            <div class="panel-section demotion-panel" id="demotionPanel" style="display: none;">
+                <h4>Demotion Justification</h4>
+                <textarea id="demotionJustification" placeholder="Enter justification for demoting to Project realm..." rows="3"></textarea>
+                <div class="demotion-actions">
+                    <button id="confirmDemote" class="btn btn-secondary">Confirm Demotion</button>
+                    <button id="cancelDemote" class="btn btn-secondary">Cancel</button>
                 </div>
             </div>
 
@@ -177,11 +204,22 @@
             
             // Approval actions
             document.getElementById('approveSelected').addEventListener('click', () => this.approveSelected());
+            document.getElementById('pendingSelected').addEventListener('click', () => this.pendingSelected());
             document.getElementById('rejectSelected').addEventListener('click', () => this.showRejectionPanel());
+            document.getElementById('promoteSelected').addEventListener('click', () => this.showPromotionPanel());
+            document.getElementById('demoteSelected').addEventListener('click', () => this.showDemotionPanel());
             
             // Rejection panel
             document.getElementById('confirmReject').addEventListener('click', () => this.confirmReject());
             document.getElementById('cancelReject').addEventListener('click', () => this.hideRejectionPanel());
+            
+            // Promotion panel
+            document.getElementById('confirmPromote').addEventListener('click', () => this.confirmPromote());
+            document.getElementById('cancelPromote').addEventListener('click', () => this.hidePromotionPanel());
+            
+            // Demotion panel
+            document.getElementById('confirmDemote').addEventListener('click', () => this.confirmDemote());
+            document.getElementById('cancelDemote').addEventListener('click', () => this.hideDemotionPanel());
             
             // Content search
             document.getElementById('performSearch').addEventListener('click', () => this.performSearch());
@@ -380,14 +418,23 @@
             document.getElementById('selectedCount').textContent = count;
             
             const approveBtn = document.getElementById('approveSelected');
+            const pendingBtn = document.getElementById('pendingSelected');
             const rejectBtn = document.getElementById('rejectSelected');
+            const promoteBtn = document.getElementById('promoteSelected');
+            const demoteBtn = document.getElementById('demoteSelected');
             
             if (count > 0) {
                 approveBtn.disabled = false;
+                pendingBtn.disabled = false;
                 rejectBtn.disabled = false;
+                promoteBtn.disabled = false;
+                demoteBtn.disabled = false;
             } else {
                 approveBtn.disabled = true;
+                pendingBtn.disabled = true;
                 rejectBtn.disabled = true;
+                promoteBtn.disabled = true;
+                demoteBtn.disabled = true;
             }
         }
         
@@ -480,6 +527,123 @@
             } catch (error) {
                 console.error('Failed to reject chunks:', error);
                 Utils.showNotification('Failed to reject chunks', 'error');
+            }
+        }
+        
+        async pendingSelected() {
+            if (this.selectedChunks.size === 0) return;
+            
+            const chunkIds = Array.from(this.selectedChunks);
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/set-pending', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: chunkIds,
+                        action_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification(`Successfully set ${response.updated_count} chunks to pending`, 'success');
+                    this.clearSelection();
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to set chunks to pending');
+                }
+            } catch (error) {
+                console.error('Failed to set chunks to pending:', error);
+                Utils.showNotification('Failed to set chunks to pending', 'error');
+            }
+        }
+        
+        showPromotionPanel() {
+            if (this.selectedChunks.size === 0) return;
+            
+            document.getElementById('promotionPanel').style.display = 'block';
+            document.getElementById('promotionJustification').focus();
+        }
+        
+        hidePromotionPanel() {
+            document.getElementById('promotionPanel').style.display = 'none';
+            document.getElementById('promotionJustification').value = '';
+        }
+        
+        async confirmPromote() {
+            const justification = document.getElementById('promotionJustification').value.trim();
+            if (!justification) {
+                Utils.showNotification('Please provide a promotion justification', 'error');
+                return;
+            }
+            
+            const chunkIds = Array.from(this.selectedChunks);
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/bulk-promote', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: chunkIds,
+                        justification: justification,
+                        action_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification(`Successfully promoted ${response.promoted_count} chunks to Global`, 'success');
+                    this.hidePromotionPanel();
+                    this.clearSelection();
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to promote chunks');
+                }
+            } catch (error) {
+                console.error('Failed to promote chunks:', error);
+                Utils.showNotification('Failed to promote chunks', 'error');
+            }
+        }
+        
+        showDemotionPanel() {
+            if (this.selectedChunks.size === 0) return;
+            
+            document.getElementById('demotionPanel').style.display = 'block';
+            document.getElementById('demotionJustification').focus();
+        }
+        
+        hideDemotionPanel() {
+            document.getElementById('demotionPanel').style.display = 'none';
+            document.getElementById('demotionJustification').value = '';
+        }
+        
+        async confirmDemote() {
+            const justification = document.getElementById('demotionJustification').value.trim();
+            if (!justification) {
+                Utils.showNotification('Please provide a demotion justification', 'error');
+                return;
+            }
+            
+            const chunkIds = Array.from(this.selectedChunks);
+            
+            try {
+                const response = await Utils.makeRequest('/api/chunks/bulk-demote', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        chunk_ids: chunkIds,
+                        justification: justification,
+                        action_by: 'frontend_user'
+                    })
+                });
+                
+                if (response.success) {
+                    Utils.showNotification(`Successfully demoted ${response.demoted_count} chunks to Project`, 'success');
+                    this.hideDemotionPanel();
+                    this.clearSelection();
+                    await this.refreshData();
+                } else {
+                    throw new Error(response.error || 'Failed to demote chunks');
+                }
+            } catch (error) {
+                console.error('Failed to demote chunks:', error);
+                Utils.showNotification('Failed to demote chunks', 'error');
             }
         }
         

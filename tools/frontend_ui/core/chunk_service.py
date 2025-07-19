@@ -642,3 +642,126 @@ class ChunkService:
                 'success': False,
                 'error': str(e)
             }
+    
+    def set_chunks_pending(self, chunk_ids: List[str], action_by: str = "frontend_ui") -> Dict[str, Any]:
+        """Set chunks to pending status"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Update chunks to pending status
+            placeholders = ','.join(['%s'] * len(chunk_ids))
+            query = f"""
+            UPDATE megamind_chunks 
+            SET approval_status = 'pending',
+                approved_at = NULL,
+                approved_by = NULL,
+                rejection_reason = NULL,
+                rejected_at = NULL,
+                rejected_by = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE chunk_id IN ({placeholders})
+            """
+            
+            cursor.execute(query, chunk_ids)
+            affected_rows = cursor.rowcount
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Set {affected_rows} chunks to pending by {action_by}")
+            
+            return {
+                'success': True,
+                'updated_count': affected_rows,
+                'chunk_ids': chunk_ids,
+                'action_by': action_by
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in set_chunks_pending: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'updated_count': 0
+            }
+    
+    def bulk_promote_chunks(self, chunk_ids: List[str], justification: str, action_by: str = "frontend_ui") -> Dict[str, Any]:
+        """Bulk promote chunks to GLOBAL realm"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Update chunks to GLOBAL realm
+            placeholders = ','.join(['%s'] * len(chunk_ids))
+            query = f"""
+            UPDATE megamind_chunks 
+            SET realm_id = 'GLOBAL',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE chunk_id IN ({placeholders})
+              AND realm_id != 'GLOBAL'
+            """
+            
+            cursor.execute(query, chunk_ids)
+            affected_rows = cursor.rowcount
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Promoted {affected_rows} chunks to GLOBAL by {action_by}. Justification: {justification}")
+            
+            return {
+                'success': True,
+                'promoted_count': affected_rows,
+                'chunk_ids': chunk_ids,
+                'justification': justification,
+                'action_by': action_by
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in bulk_promote_chunks: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'promoted_count': 0
+            }
+    
+    def bulk_demote_chunks(self, chunk_ids: List[str], justification: str, action_by: str = "frontend_ui") -> Dict[str, Any]:
+        """Bulk demote chunks to MegaMind_MCP (project) realm"""
+        try:
+            conn = self._get_connection()
+            cursor = conn.cursor()
+            
+            # Update chunks to MegaMind_MCP realm
+            placeholders = ','.join(['%s'] * len(chunk_ids))
+            query = f"""
+            UPDATE megamind_chunks 
+            SET realm_id = 'MegaMind_MCP',
+                updated_at = CURRENT_TIMESTAMP
+            WHERE chunk_id IN ({placeholders})
+              AND realm_id = 'GLOBAL'
+            """
+            
+            cursor.execute(query, chunk_ids)
+            affected_rows = cursor.rowcount
+            
+            cursor.close()
+            conn.close()
+            
+            logger.info(f"Demoted {affected_rows} chunks to MegaMind_MCP by {action_by}. Justification: {justification}")
+            
+            return {
+                'success': True,
+                'demoted_count': affected_rows,
+                'chunk_ids': chunk_ids,
+                'justification': justification,
+                'action_by': action_by
+            }
+            
+        except Error as e:
+            logger.error(f"Database error in bulk_demote_chunks: {e}")
+            return {
+                'success': False,
+                'error': str(e),
+                'demoted_count': 0
+            }
