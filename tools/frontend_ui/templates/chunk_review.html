@@ -11,6 +11,10 @@
     .clickable-filter { cursor: pointer; transition: background-color 0.2s; }
     .clickable-filter:hover { background-color: #f8f9fa; }
     .clickable-filter.active { background-color: #007bff; color: white; }
+    .search-status { margin-top: 8px; padding: 4px 8px; background-color: #e3f2fd; border-left: 3px solid #2196f3; }
+    .relevance-score { color: #2196f3; font-weight: bold; }
+    .search-indicator { color: #2196f3; font-size: 14px; }
+    #clearSearch { margin-left: 5px; }
 </style>
 {% endblock %}
 
@@ -91,10 +95,10 @@
             </div>
 
             <div class="panel-section">
-                <h3>Search Tester</h3>
+                <h3>Content Search</h3>
                 <div class="search-controls">
                     <div class="search-input-group">
-                        <input type="text" id="searchQuery" placeholder="Enter search query..." class="form-control">
+                        <input type="text" id="searchQuery" placeholder="Search content..." class="form-control">
                         <select id="searchType" class="form-control search-type-select">
                             <option value="simulate">Agent Simulation</option>
                             <option value="hybrid">Hybrid Search</option>
@@ -102,9 +106,12 @@
                             <option value="keyword">Keyword Search</option>
                         </select>
                     </div>
-                    <button id="testSearch" class="btn btn-info">Test Query</button>
+                    <button id="performSearch" class="btn btn-primary">Search</button>
+                    <button id="clearSearch" class="btn btn-secondary" style="display: none;">Clear</button>
                 </div>
-                <div class="search-results" id="searchResults"></div>
+                <div class="search-status" id="searchStatus" style="display: none;">
+                    <small class="text-muted">Showing search results for: <span id="currentSearchQuery"></span></small>
+                </div>
             </div>
 
             <div class="panel-section">
@@ -141,6 +148,9 @@
             this.currentPage = 1;
             this.pageSize = 20;
             this.currentFilter = 'pending'; // Default filter
+            this.isSearchMode = false; // Track if we're in search mode
+            this.currentSearchQuery = '';
+            this.currentSearchType = 'simulate';
             
             this.initializeApp();
         }
@@ -173,10 +183,11 @@
             document.getElementById('confirmReject').addEventListener('click', () => this.confirmReject());
             document.getElementById('cancelReject').addEventListener('click', () => this.hideRejectionPanel());
             
-            // Search tester
-            document.getElementById('testSearch').addEventListener('click', () => this.testSearch());
+            // Content search
+            document.getElementById('performSearch').addEventListener('click', () => this.performSearch());
+            document.getElementById('clearSearch').addEventListener('click', () => this.clearSearch());
             document.getElementById('searchQuery').addEventListener('keypress', (e) => {
-                if (e.key === 'Enter') this.testSearch();
+                if (e.key === 'Enter') this.performSearch();
             });
             
             // Modal controls
@@ -284,6 +295,7 @@
             
             const contentPreview = Utils.truncateText(chunk.content_preview || chunk.content || '', 200);
             const complexityScore = chunk.complexity_score ? chunk.complexity_score.toFixed(2) : 'N/A';
+            const relevanceScore = chunk.relevance_score ? chunk.relevance_score.toFixed(3) : null;
             
             chunkElement.innerHTML = `
                 <div class="chunk-header">
@@ -292,8 +304,9 @@
                         <span class="chunk-id">${chunk.chunk_id}</span>
                     </label>
                     <div class="chunk-meta">
-                        <span class="complexity-score">Score: ${complexityScore}</span>
+                        ${relevanceScore ? `<span class="relevance-score">Relevance: ${relevanceScore}</span>` : `<span class="complexity-score">Score: ${complexityScore}</span>`}
                         <span class="chunk-type">${chunk.chunk_type || 'unknown'}</span>
+                        ${this.isSearchMode ? `<span class="search-indicator">🔍</span>` : ''}
                     </div>
                 </div>
                 <div class="chunk-info">
@@ -470,7 +483,7 @@
             }
         }
         
-        async testSearch() {
+        async performSearch() {
             const query = document.getElementById('searchQuery').value.trim();
             const searchType = document.getElementById('searchType').value;
             
@@ -485,12 +498,23 @@
                     body: JSON.stringify({ 
                         query: query, 
                         search_type: searchType,
-                        limit: 5 
+                        limit: this.pageSize 
                     })
                 });
                 
                 if (response.success) {
-                    this.displaySearchResults(response.results, response.search_type);
+                    // Enter search mode and display results in main list
+                    this.isSearchMode = true;
+                    this.currentSearchQuery = query;
+                    this.currentSearchType = searchType;
+                    this.currentChunks = response.results;
+                    
+                    // Update UI to show search state
+                    this.updateSearchUI(true, query, searchType, response.results.length);
+                    this.renderChunks();
+                    this.clearSelection();
+                    
+                    Utils.showNotification(`Found ${response.results.length} results`, 'success');
                 } else {
                     throw new Error(response.error || 'Search failed');
                 }
@@ -500,65 +524,61 @@
             }
         }
         
-        displaySearchResults(results, searchType = 'simulate') {
-            const container = document.getElementById('searchResults');
-            container.innerHTML = '';
+        clearSearch() {
+            // Exit search mode and return to filtered view
+            this.isSearchMode = false;
+            this.currentSearchQuery = '';
+            document.getElementById('searchQuery').value = '';
             
-            if (results.length === 0) {
-                container.innerHTML = '<p class="no-results">No matching chunks found</p>';
-                return;
-            }
+            // Update UI to hide search state
+            this.updateSearchUI(false);
             
-            // Add search type indicator
-            const headerElement = document.createElement('div');
-            headerElement.className = 'search-header';
-            headerElement.innerHTML = `
-                <h4>Search Results (${results.length} found)</h4>
-                <div class="search-type-indicator">
-                    <span class="search-type-label">Type:</span>
-                    <span class="search-type-value">${this.getSearchTypeLabel(searchType)}</span>
-                </div>
-            `;
-            container.appendChild(headerElement);
+            // Reload chunks based on current filter
+            this.loadChunks(true);
+            this.clearSelection();
             
-            results.forEach(result => {
-                const resultElement = document.createElement('div');
-                resultElement.className = 'search-result clickable';
-                resultElement.dataset.chunkId = result.chunk_id;
-                resultElement.innerHTML = `
-                    <div class="result-header">
-                        <strong>${result.chunk_id}</strong>
-                        <span class="relevance-score">${result.relevance_score.toFixed(3)}</span>
-                    </div>
-                    <div class="result-meta">
-                        <span class="result-source">${result.source_document}</span>
-                        <span class="result-status status-${result.approval_status}">${result.approval_status}</span>
-                    </div>
-                    <div class="result-content">${result.content_preview}</div>
-                    <div class="result-actions">
-                        <button class="btn btn-sm btn-outline view-chunk-details" data-chunk-id="${result.chunk_id}">
-                            View Details
-                        </button>
-                    </div>
-                `;
-                
-                // Add click handler for the entire result
-                resultElement.addEventListener('click', (e) => {
-                    if (!e.target.classList.contains('btn')) {
-                        this.viewChunkDetails(result.chunk_id);
-                    }
-                });
-                
-                // Add click handler for the view details button
-                const viewBtn = resultElement.querySelector('.view-chunk-details');
-                viewBtn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    this.viewChunkDetails(result.chunk_id);
-                });
-                
-                container.appendChild(resultElement);
-            });
+            Utils.showNotification('Search cleared', 'info');
         }
+        
+        updateSearchUI(isSearching, query = '', searchType = '', resultCount = 0) {
+            const searchStatus = document.getElementById('searchStatus');
+            const currentSearchQuery = document.getElementById('currentSearchQuery');
+            const clearSearchBtn = document.getElementById('clearSearch');
+            const headerElement = document.querySelector('.chunk-display h3');
+            
+            if (isSearching) {
+                searchStatus.style.display = 'block';
+                clearSearchBtn.style.display = 'inline-block';
+                currentSearchQuery.textContent = `"${query}" (${this.getSearchTypeLabel(searchType)}) - ${resultCount} results`;
+                headerElement.textContent = 'Search Results';
+                
+                // Disable filter clicks during search
+                document.querySelectorAll('.clickable-filter').forEach(filter => {
+                    filter.style.pointerEvents = 'none';
+                    filter.style.opacity = '0.6';
+                });
+            } else {
+                searchStatus.style.display = 'none';
+                clearSearchBtn.style.display = 'none';
+                
+                // Re-enable filter clicks
+                document.querySelectorAll('.clickable-filter').forEach(filter => {
+                    filter.style.pointerEvents = 'auto';
+                    filter.style.opacity = '1';
+                });
+                
+                // Restore header based on current filter
+                const filterLabels = {
+                    'pending': 'Pending Content',
+                    'approved': 'Approved Content', 
+                    'rejected': 'Rejected Content',
+                    'global': 'Global Content',
+                    'all': 'All Content'
+                };
+                headerElement.textContent = filterLabels[this.currentFilter] || 'Content List';
+            }
+        }
+        
         
         getSearchTypeLabel(searchType) {
             const labels = {
@@ -627,6 +647,12 @@
         }
         
         async applyFilter(filterType) {
+            // Don't allow filter changes during search mode
+            if (this.isSearchMode) {
+                Utils.showNotification('Clear search first to change filters', 'info');
+                return;
+            }
+            
             // Update active filter UI
             document.querySelectorAll('.clickable-filter').forEach(filter => {
                 filter.classList.remove('active');
