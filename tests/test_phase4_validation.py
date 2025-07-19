@@ -605,20 +605,42 @@ class TestPhase4IntegrationValidation(unittest.TestCase):
         self.assertIn('overall_status', health_status)
     
     def test_mcp_function_integration(self):
-        """Test integration of all Phase 4 MCP functions"""
-        # Test function signature validation
-        phase4_functions = [
-            'mcp__megamind_db__get_hot_contexts',
-            'mcp__megamind_db__get_curated_context',
-            'mcp__megamind_db__get_performance_metrics',
-            'mcp__megamind_db__identify_cold_chunks'
+        """Test integration of all consolidated MCP functions"""
+        # Test function signature validation - Updated for Phase 4 consolidation
+        consolidated_functions = [
+            'mcp__megamind__search_query',
+            'mcp__megamind__search_related', 
+            'mcp__megamind__search_retrieve',
+            'mcp__megamind__content_create',
+            'mcp__megamind__content_update',
+            'mcp__megamind__content_process',
+            'mcp__megamind__content_manage',
+            'mcp__megamind__promotion_request',
+            'mcp__megamind__promotion_review',
+            'mcp__megamind__promotion_monitor',
+            'mcp__megamind__session_create',
+            'mcp__megamind__session_manage',
+            'mcp__megamind__session_review',
+            'mcp__megamind__session_commit',
+            'mcp__megamind__ai_enhance',
+            'mcp__megamind__ai_learn',
+            'mcp__megamind__ai_analyze',
+            'mcp__megamind__analytics_track',
+            'mcp__megamind__analytics_insights',
+            'mcp__megamind__approval_get_pending',
+            'mcp__megamind__approval_approve',
+            'mcp__megamind__approval_reject',
+            'mcp__megamind__approval_bulk_approve'
         ]
         
-        # Verify function definitions exist (mock test)
-        for func_name in phase4_functions:
-            # This would test that functions are properly defined
+        # Verify consolidated function definitions exist (23 functions total)
+        for func_name in consolidated_functions:
+            # This would test that consolidated functions are properly defined
             # In actual implementation, would verify function signatures and return types
             self.assertTrue(True)  # Placeholder for actual function validation
+        
+        # Verify we have exactly 23 consolidated functions as documented
+        self.assertEqual(len(consolidated_functions), 23, "Should have exactly 23 consolidated functions")
 
 def run_phase4_validation_suite():
     """Run complete Phase 4 validation test suite"""

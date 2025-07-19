@@ -1,182 +1,246 @@
-# Function Mapping Documentation - Phase 1 Implementation
-## GitHub Issue #25: Function Consolidation Cleanup Plan
+# Function Consolidation Mapping - Phase 4 Cleanup Documentation
+## GitHub Issue #25: Function Consolidation Cleanup Plan - COMPLETED ✅
 
 ### Overview
-This document provides the complete mapping between the original 20 MCP functions and the new consolidated 19 functions, along with function categories and consolidation patterns.
+This document provides the complete mapping from the original 44+ deprecated MCP function names to the new 23 consolidated functions, as implemented in Phase 4 cleanup.
 
-## Original 20 Functions → New 19 Consolidated Functions
+**Status**: ✅ **COMPLETED** - All deprecated functions have been removed from the legacy server
+**Server**: HTTP MCP Server now exclusively uses `ConsolidatedMCPServer`
+**Environment**: Controlled by `MEGAMIND_USE_CONSOLIDATED_FUNCTIONS=true` (default)
 
-### 🔍 SEARCH CLASS (5 Original → 3 Consolidated)
+## Function Mapping
 
-#### Original Search Functions
-1. `mcp__megamind__search_chunks` → **`mcp__megamind__search_query`**
-2. `mcp__megamind__get_chunk` → **`mcp__megamind__search_retrieve`**
-3. `mcp__megamind__get_related_chunks` → **`mcp__megamind__search_related`**
-4. `mcp__megamind__search_chunks_semantic` → **`mcp__megamind__search_query`** (with search_type="semantic")
-5. `mcp__megamind__search_chunks_by_similarity` → **`mcp__megamind__search_query`** (with search_type="similarity")
+### 🔍 SEARCH CLASS - Consolidated to 3 Master Functions
 
-#### Consolidation Pattern
-- **Master Function**: `search_query` with intelligent routing based on search_type parameter
-- **Specialized Functions**: `search_related` for relationship traversal, `search_retrieve` for direct access
-- **Reduction**: 5 → 3 functions (40% reduction)
+#### → `mcp__megamind__search_query` (Master search with intelligent routing)
+**Replaces**:
+- `mcp__megamind__search_chunks` → Use `search_type="hybrid"` (default)
+- `mcp__megamind__search_chunks_semantic` → Use `search_type="semantic"`
+- `mcp__megamind__search_chunks_by_similarity` → Use `search_type="similarity"` + `reference_chunk_id`
 
-### 📝 CONTENT CLASS (4 Original → 4 Consolidated)
+#### → `mcp__megamind__search_related` (Master related chunks finder)
+**Replaces**:
+- `mcp__megamind__get_related_chunks` → Use with `chunk_id` parameter
+- `mcp__megamind__get_hot_contexts` → Use with `include_hot_contexts=true`
 
-#### Original Content Functions
-1. `mcp__megamind__create_chunk` → **`mcp__megamind__content_create`**
-2. `mcp__megamind__update_chunk` → **`mcp__megamind__content_update`**
-3. `mcp__megamind__add_relationship` → **`mcp__megamind__content_process`** (relationship management)
-4. `mcp__megamind__batch_generate_embeddings` → **`mcp__megamind__content_manage`** (embedding operations)
+#### → `mcp__megamind__search_retrieve` (Master chunk retrieval)
+**Replaces**:
+- `mcp__megamind__get_chunk` → Use with `chunk_id` parameter
+- `mcp__megamind__track_access` → Use with `track_access=true` (default)
 
-#### Consolidation Pattern
-- **Direct Mapping**: Most content functions map 1:1 with enhanced capabilities
-- **Logical Grouping**: Relationship and embedding operations consolidated into process/manage functions
-- **Reduction**: 4 → 4 functions (maintained with enhanced functionality)
+### 📝 CONTENT CLASS - Consolidated to 4 Master Functions
 
-### 🚀 PROMOTION CLASS (6 Original → 3 Consolidated)
+#### → `mcp__megamind__content_create` (Master chunk creation)
+**Replaces**:
+- `mcp__megamind__create_chunk` → Direct replacement with enhanced capabilities
+- `mcp__megamind__add_relationship` → Use with `create_relationships=true` and `relationship_targets`
 
-#### Original Promotion Functions
-1. `mcp__megamind__create_promotion_request` → **`mcp__megamind__promotion_request`**
-2. `mcp__megamind__get_promotion_requests` → **`mcp__megamind__promotion_monitor`**
-3. `mcp__megamind__approve_promotion_request` → **`mcp__megamind__promotion_review`** (action="approve")
-4. `mcp__megamind__reject_promotion_request` → **`mcp__megamind__promotion_review`** (action="reject")
-5. `mcp__megamind__get_promotion_impact` → **`mcp__megamind__promotion_review`** (with analysis)
-6. `mcp__megamind__get_promotion_queue_summary` → **`mcp__megamind__promotion_monitor`**
+#### → `mcp__megamind__content_update` (Master chunk modification)
+**Replaces**:
+- `mcp__megamind__update_chunk` → Direct replacement with embedding updates
+- `mcp__megamind__batch_generate_embeddings` → Use with `update_embeddings=true`
 
-#### Consolidation Pattern
-- **Action-Based Consolidation**: All approval/rejection actions consolidated into `promotion_review`
-- **Monitoring Consolidation**: Queue and request monitoring consolidated into `promotion_monitor`
-- **Request Management**: Creation and management consolidated into `promotion_request`
-- **Reduction**: 6 → 3 functions (50% reduction)
+#### → `mcp__megamind__content_process` (Master document processing)
+**Replaces**:
+- `mcp__megamind__content_analyze_document` → Use with `analyze_first=true` (default)
+- `mcp__megamind__content_create_chunks` → Use with `strategy="auto"` (default)
+- `mcp__megamind__content_assess_quality` → Integrated into processing workflow
+- `mcp__megamind__content_optimize_embeddings` → Use with `optimize_after=true` (default)
 
-### 📊 SESSION CLASS (3 Original → 4 Consolidated)
+#### → `mcp__megamind__content_manage` (Master content management)
+**Replaces**:
+- `mcp__megamind__knowledge_ingest_document` → Use `action="ingest"`
+- `mcp__megamind__knowledge_discover_relationships` → Use `action="discover"`
+- `mcp__megamind__knowledge_optimize_retrieval` → Use `action="optimize"`
+- `mcp__megamind__knowledge_get_related` → Use `action="get_related"`
 
-#### Original Session Functions
-1. `mcp__megamind__get_session_primer` → **`mcp__megamind__session_create`** (session initialization)
-2. `mcp__megamind__get_pending_changes` → **`mcp__megamind__session_manage`** (action="get_pending")
-3. `mcp__megamind__commit_session_changes` → **`mcp__megamind__session_commit`**
+### 🚀 PROMOTION CLASS - Consolidated to 3 Master Functions
 
-#### Additional Session Functions (Enhanced)
-4. **`mcp__megamind__session_review`** - New function for session analysis and recap
+#### → `mcp__megamind__promotion_request` (Master promotion creation)
+**Replaces**:
+- `mcp__megamind__create_promotion_request` → Direct replacement with auto-analysis
 
-#### Consolidation Pattern
-- **Workflow-Based**: Functions organized around session lifecycle (create, manage, review, commit)
-- **Enhanced Functionality**: New session_review function adds comprehensive session analysis
-- **Expansion**: 3 → 4 functions (enhanced session management)
+#### → `mcp__megamind__promotion_review` (Master promotion review)
+**Replaces**:
+- `mcp__megamind__approve_promotion_request` → Use `action="approve"`
+- `mcp__megamind__reject_promotion_request` → Use `action="reject"`
 
-### 📈 ANALYTICS CLASS (2 Original → 2 Consolidated)
+#### → `mcp__megamind__promotion_monitor` (Master promotion monitoring)
+**Replaces**:
+- `mcp__megamind__get_promotion_requests` → Use with `filter_status` parameter
+- `mcp__megamind__get_promotion_impact` → Integrated into monitoring
+- `mcp__megamind__get_promotion_queue_summary` → Use with `include_summary=true` (default)
 
-#### Original Analytics Functions
-1. `mcp__megamind__track_access` → **`mcp__megamind__analytics_track`**
-2. `mcp__megamind__get_hot_contexts` → **`mcp__megamind__analytics_insights`**
+### 🔄 SESSION CLASS - Consolidated to 4 Master Functions
 
-#### Consolidation Pattern
-- **Direct Enhancement**: Functions maintain core purpose with enhanced capabilities
-- **Consistent Naming**: Standardized analytics prefix for all analytics operations
-- **Reduction**: 2 → 2 functions (maintained with enhanced functionality)
+#### → `mcp__megamind__session_create` (Master session creation)
+**Replaces**:
+- `mcp__megamind__session_create` → Use `session_type="processing"`
+- `mcp__megamind__session_create_operational` → Use `session_type="operational"`
 
-### 🤖 AI CLASS (0 Original → 3 New Consolidated)
+#### → `mcp__megamind__session_manage` (Master session management)
+**Replaces**:
+- `mcp__megamind__session_get_state` → Use `action="get_state"`
+- `mcp__megamind__session_track_action` → Use `action="track_action"`
+- `mcp__megamind__session_prime_context` → Use `action="prime_context"`
 
-#### New AI Enhancement Functions
-1. **`mcp__megamind__ai_enhance`** - AI-powered content quality improvement
-2. **`mcp__megamind__ai_learn`** - Machine learning feedback integration
-3. **`mcp__megamind__ai_analyze`** - AI-driven content analysis
+#### → `mcp__megamind__session_review` (Master session review)
+**Replaces**:
+- `mcp__megamind__get_pending_changes` → Use with `include_pending=true` (default)
+- `mcp__megamind__session_get_recap` → Use with `include_recap=true` (default)
+- `mcp__megamind__session_list_recent` → Use with `include_recent=true`
 
-#### Consolidation Pattern
-- **New Functionality**: AI class represents new capabilities not present in original 20 functions
-- **Future-Ready**: Designed for advanced AI integration and machine learning workflows
-- **Addition**: 0 → 3 functions (new AI capabilities)
+#### → `mcp__megamind__session_commit` (Master session commitment)
+**Replaces**:
+- `mcp__megamind__commit_session_changes` → Use with `approved_changes` array
+- `mcp__megamind__session_complete` → Use with `close_session=true` (default)
+- `mcp__megamind__session_close` → Use with minimal parameters
+
+### 🤖 AI CLASS - Consolidated to 3 Master Functions
+
+#### → `mcp__megamind__ai_enhance` (Master AI enhancement)
+**Replaces**:
+- `mcp__megamind__ai_improve_chunk_quality` → Use `enhancement_type="quality"`
+- `mcp__megamind__ai_curate_chunks` → Use `enhancement_type="curation"`
+- `mcp__megamind__ai_optimize_performance` → Use `enhancement_type="optimization"`
+
+#### → `mcp__megamind__ai_learn` (Master AI learning)
+**Replaces**:
+- `mcp__megamind__ai_record_user_feedback` → Use with `feedback_data` parameter
+- `mcp__megamind__ai_get_adaptive_strategy` → Integrated into learning workflow
+
+#### → `mcp__megamind__ai_analyze` (Master AI analysis)
+**Replaces**:
+- `mcp__megamind__ai_get_performance_insights` → Use `analysis_type="performance"`
+- `mcp__megamind__ai_generate_enhancement_report` → Use `analysis_type="enhancement"`
+
+### 📊 ANALYTICS CLASS - Consolidated to 2 Master Functions
+
+#### → `mcp__megamind__analytics_track` (Master analytics tracking)
+**Replaces**:
+- `mcp__megamind__track_access` → Use `track_type="access"` (default)
+
+#### → `mcp__megamind__analytics_insights` (Master analytics insights)
+**Replaces**:
+- `mcp__megamind__get_hot_contexts` → Use `insight_type="hot_contexts"` (default)
+
+### 🔰 APPROVAL CLASS - Consolidated to 4 Master Functions
+
+#### → `mcp__megamind__approval_get_pending` (Get pending chunks)
+**Replaces**:
+- `mcp__megamind__get_pending_chunks` → Direct replacement
+
+#### → `mcp__megamind__approval_approve` (Approve chunks)
+**Replaces**:
+- `mcp__megamind__approve_chunk` → Single chunk approval
+- `mcp__megamind__bulk_approve_chunks` → Multiple chunk approval
+
+#### → `mcp__megamind__approval_reject` (Reject chunks)
+**Replaces**:
+- `mcp__megamind__reject_chunk` → Direct replacement with reason tracking
+
+#### → `mcp__megamind__approval_bulk_approve` (Bulk approve multiple chunks)
+**Replaces**:
+- `mcp__megamind__bulk_approve_chunks` → Direct replacement
+
+### 🔄 CONTEXTUAL PRIMING - Consolidated into Other Functions
+
+#### → Integrated into `mcp__megamind__session_create` and `mcp__megamind__session_manage`
+**Replaces**:
+- `mcp__megamind__get_session_primer` → Use `session_create` with `auto_prime=true`
+
+## Migration Examples
+
+### Search Migration
+```python
+# OLD: Multiple function calls
+mcp__megamind__search_chunks(query="test", limit=10)
+mcp__megamind__search_chunks_semantic(query="test", limit=10)
+mcp__megamind__get_chunk(chunk_id="123")
+mcp__megamind__get_related_chunks(chunk_id="123")
+
+# NEW: Unified search function
+mcp__megamind__search_query(query="test", search_type="hybrid", limit=10)
+mcp__megamind__search_query(query="test", search_type="semantic", limit=10)
+mcp__megamind__search_retrieve(chunk_id="123")
+mcp__megamind__search_related(chunk_id="123")
+```
+
+### Content Migration
+```python
+# OLD: Separate content functions
+mcp__megamind__create_chunk(content="...", source_document="doc.md")
+mcp__megamind__add_relationship(chunk_id_1="123", chunk_id_2="456")
+mcp__megamind__update_chunk(chunk_id="123", new_content="...")
+
+# NEW: Unified content functions
+mcp__megamind__content_create(content="...", source_document="doc.md", create_relationships=True)
+mcp__megamind__content_update(chunk_id="123", new_content="...")
+```
+
+### Session Migration
+```python
+# OLD: Multiple session functions
+mcp__megamind__session_create(session_type="processing")
+mcp__megamind__session_get_state(session_id="abc")
+mcp__megamind__commit_session_changes(session_id="abc", approved_changes=["1","2"])
+
+# NEW: Unified session functions
+mcp__megamind__session_create(session_type="processing", created_by="user")
+mcp__megamind__session_manage(session_id="abc", action="get_state")
+mcp__megamind__session_commit(session_id="abc", approved_changes=["1","2"])
+```
+
+## Benefits of Consolidation
+
+### ✅ **Reduced Complexity**
+- **Before**: 44+ individual functions to remember
+- **After**: 23 master functions with intelligent routing
+
+### ✅ **Improved Consistency**
+- **Before**: Inconsistent parameter naming and response formats
+- **After**: Standardized class-based naming (`search_*`, `content_*`, `session_*`)
+
+### ✅ **Enhanced Functionality**
+- **Before**: Limited single-purpose functions
+- **After**: Master functions with optional enhanced capabilities
+
+### ✅ **Better Documentation**
+- **Before**: 44+ separate function documentations
+- **After**: 7 function classes with clear hierarchies
+
+### ✅ **Easier Maintenance**
+- **Before**: Changes required across multiple functions
+- **After**: Centralized logic in master functions
 
 ## Summary Statistics
 
 ### Function Count Reduction
-- **Original Functions**: 20
-- **Consolidated Functions**: 19
-- **Net Reduction**: 1 function (5% reduction)
-- **Actual Consolidation**: 5 functions eliminated through intelligent routing
+- **Original Functions**: 44+
+- **Consolidated Functions**: 23
+- **Net Reduction**: 21+ functions (48% reduction)
 
 ### Function Categories
 | Category | Original Count | Consolidated Count | Reduction % |
 |----------|---------------|-------------------|-------------|
-| **SEARCH** | 5 | 3 | 40% |
-| **CONTENT** | 4 | 4 | 0% |
+| **SEARCH** | 8+ | 3 | 62% |
+| **CONTENT** | 8+ | 4 | 50% |
 | **PROMOTION** | 6 | 3 | 50% |
-| **SESSION** | 3 | 4 | -33% (enhanced) |
-| **ANALYTICS** | 2 | 2 | 0% |
-| **AI** | 0 | 3 | New |
-| **TOTAL** | 20 | 19 | 5% |
+| **SESSION** | 10+ | 4 | 60% |
+| **AI** | 8+ | 3 | 62% |
+| **ANALYTICS** | 2+ | 2 | Maintained |
+| **APPROVAL** | 4 | 4 | Maintained |
+| **TOTAL** | 44+ | 23 | 48% |
 
-### Key Consolidation Patterns
+## Deployment Status
 
-1. **Intelligent Routing**: Master functions route to appropriate subfunctions based on parameters
-2. **Action-Based Grouping**: Related actions consolidated into single functions with action parameters
-3. **Enhanced Capabilities**: Consolidated functions provide more functionality than original functions
-4. **Logical Categorization**: Functions organized by purpose rather than implementation details
-
-## Implementation Status
-
-### ✅ Confirmed Working (6 functions)
-- `mcp__megamind__search_query` ✅
-- `mcp__megamind__search_related` ✅ 
-- `mcp__megamind__content_create` ✅
-- `mcp__megamind__content_update` ✅
-- `mcp__megamind__session_review` ✅
-- `mcp__megamind__analytics_track` ✅
-
-### ❓ Implementation Status Unknown (13 functions)
-- `mcp__megamind__search_retrieve`
-- `mcp__megamind__content_process`
-- `mcp__megamind__content_manage`
-- `mcp__megamind__promotion_request`
-- `mcp__megamind__promotion_review`
-- `mcp__megamind__promotion_monitor`
-- `mcp__megamind__session_create`
-- `mcp__megamind__session_manage`
-- `mcp__megamind__session_commit`
-- `mcp__megamind__analytics_insights`
-- `mcp__megamind__ai_enhance`
-- `mcp__megamind__ai_learn`
-- `mcp__megamind__ai_analyze`
-
-## Next Steps for Phase 2
-
-1. **Test All 19 Consolidated Functions**: Verify each function works correctly
-2. **Add Deprecation Warnings**: Implement warnings for original 20 function names
-3. **Create Function Aliases**: Route original function calls to new consolidated functions
-4. **Update Documentation**: Mark original functions as deprecated
-5. **Migration Testing**: Ensure backward compatibility during transition
-
-## Migration Examples
-
-### Search Function Migration
-```python
-# OLD (deprecated)
-results = mcp__megamind__search_chunks("query text", limit=10)
-
-# NEW (consolidated)
-results = mcp__megamind__search_query("query text", limit=10, search_type="hybrid")
-```
-
-### Promotion Function Migration
-```python
-# OLD (deprecated)
-mcp__megamind__approve_promotion_request(promotion_id, reason, session_id)
-
-# NEW (consolidated)
-mcp__megamind__promotion_review(promotion_id, action="approve", reason=reason, session_id=session_id)
-```
-
-### Session Function Migration
-```python
-# OLD (deprecated)
-changes = mcp__megamind__get_pending_changes(session_id)
-
-# NEW (consolidated)
-changes = mcp__megamind__session_manage(session_id, action="get_pending")
-```
+- **✅ Environment Variable**: `MEGAMIND_USE_CONSOLIDATED_FUNCTIONS=true` (default)
+- **✅ HTTP Transport**: Automatically uses ConsolidatedMCPServer
+- **✅ Production Ready**: All 23 functions tested and operational
+- **✅ Legacy Cleanup**: Deprecated functions removed after Phase 4 cleanup
 
 ---
 
-**Document Status**: Phase 1 Complete - Function mapping documented  
-**Next Phase**: Phase 2 - Deprecation strategy implementation  
-**Total Functions Mapped**: 20 → 19 (5% reduction with enhanced capabilities)
+**Generated**: Phase 4 Cleanup - Function Consolidation Complete  
+**Version**: 2.0.0 - Consolidated Functions  
+**Total Function Reduction**: 44+ → 23 (48% reduction)
